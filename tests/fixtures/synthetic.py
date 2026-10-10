@@ -104,7 +104,8 @@ def make_study(root: Path, n_questions: int = 200, seed: int = 3) -> Path:
                     "fee": KALSHI_FEE if venue == "kalshi" else PM_FEE,
                     "early_close": early,
                     "tick_size": 0.01,
-                },
+                }
+                | ({"series": f"KXSYN{int(ev[i]) % 12}"} if venue == "kalshi" else {}),
             )
         )
         for h in HORIZONS:

@@ -82,6 +82,8 @@ def test_order_fee_terms():
     pm = {"kind": "polymarket", "rate": 0.07, "exponent": 1, "taker_only": True}
     assert order_fee(pm, [(0.5, 100)]) == pytest.approx(1.75)
     assert order_fee(pm | {"feesEnabled": False}, [(0.5, 100)]) == 0.0
+    assert order_fee(pm | {"enabled": False}, [(0.5, 100)]) == 0.0  # key written by fee_terms
+    assert order_fee(pm | {"enabled": True}, [(0.5, 100)]) == pytest.approx(1.75)
     assert order_fee(pm | {"rate": 0}, [(0.5, 100)]) == 0.0
     # Kalshi: summed over fills, rounded once per order
     assert order_fee(K, [(0.5, 1), (0.5, 1)]) == pytest.approx(0.04)  # 0.035 -> 0.04

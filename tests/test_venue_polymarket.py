@@ -231,6 +231,83 @@ def test_eligible_windows():
     )
 
 
+# --- title deadline --------------------------------------------------------------------------
+
+JUL_CREATED = T("2026-07-01T12:00:00")
+JUL_END = T("2026-07-31T23:59:00")
+
+
+@pytest.mark.parametrize(
+    "title, created, end, expected",
+    [
+        (
+            "Israel military action against Yemen by July 21?",
+            JUL_CREATED,
+            JUL_END,
+            "2026-07-22T04:59:00Z",
+        ),
+        (
+            "Will Donald Trump publicly insult someone on July 2, 2026?",
+            JUL_CREATED,
+            JUL_END,
+            "2026-07-03T04:59:00Z",
+        ),
+        (
+            "Will US crude oil reserves fall to 280M by September 25, 2026?",
+            JUL_CREATED,
+            T("2026-10-08T00:00:00"),
+            "2026-09-26T04:59:00Z",
+        ),
+        ("Deal signed before Friday, Sept. 4th?", JUL_CREATED, JUL_END, "2026-09-05T04:59:00Z"),
+        ("Will it rain on July 2-3?", JUL_CREATED, JUL_END, "2026-07-04T04:59:00Z"),
+        # Dec -> Jan wrap: a December listing asking "by January 5" means next year.
+        (
+            "Ceasefire by January 5?",
+            T("2026-12-10T00:00:00"),
+            T("2027-01-06T05:00:00"),
+            "2027-01-06T04:59:00Z",
+        ),
+        (
+            "Ceasefire by December 31?",
+            T("2026-12-10T00:00:00"),
+            T("2027-01-01T05:00:00"),
+            "2027-01-01T04:59:00Z",
+        ),
+        # Period questions and dates without a deadline word are not deadlines.
+        ("Will US CPI rise in July 2026?", JUL_CREATED, JUL_END, None),
+        ("Will Bitcoin dip to $52,500 in July?", JUL_CREATED, JUL_END, None),
+        ("Fed decision on July 2026 meeting?", JUL_CREATED, JUL_END, None),
+        ("Will Henan FC win on 2026-07-17?", JUL_CREATED, JUL_END, None),
+        ("Who wins the July 21 primary?", JUL_CREATED, JUL_END, None),
+        ("Nothing by Feb 30?", JUL_CREATED, JUL_END, None),
+    ],
+)
+def test_title_deadline(title, created, end, expected):
+    d = pm.title_deadline(title, end, created)
+    assert (pm.to_iso(d) if d else None) == expected
+
+
+def test_title_deadline_recorded_and_enforced():
+    kw = dict(
+        created_after=T("2026-05-01T00:00:00"),
+        closed_before=T("2026-10-10T00:00:00"),
+        min_open_days=8,
+        min_volume=10_000,
+    )
+    # endDate the day after the named day (00:00 UTC): within the 1-day slack, still eligible.
+    ok, _ = pm.parse_market(market(question="Fed cut by September 15?"))
+    assert ok.extra["title_deadline"] == "2026-09-16T04:59:00Z"
+    assert pm.eligible(ok, **kw) == ""
+    late, _ = pm.parse_market(market(question="Fed cut by September 10?"))
+    assert late.extra["title_deadline"] == "2026-09-11T04:59:00Z"
+    assert pm.eligible(late, **kw) == "title_deadline_before_end"
+    # The rule works from a saved Question (title + close_at + created_at), not from extra.
+    late.extra.pop("title_deadline")
+    assert pm.eligible(late, **kw) == "title_deadline_before_end"
+    none, _ = pm.parse_market(market())
+    assert "title_deadline" not in none.extra
+
+
 # --- prices ----------------------------------------------------------------------------------
 
 
@@ -421,3 +498,27 @@ def test_tune_keeps_explicit_overrides():
         c.interval_for("gamma-api.polymarket.com") == pm.HOST_INTERVALS["gamma-api.polymarket.com"]
     )
     assert json.dumps(pm.fee_terms(market()))  # serialisable for JSONL
+
+
+def test_collect_reuse_reapplies_polymarket_eligibility(tmp_path):
+    from pricedin import cli
+    from pricedin.schema import Question, read_jsonl, write_jsonl
+
+    toml = tmp_path / "studies" / "t.toml"
+    toml.parent.mkdir()
+    toml.write_text(
+        '[study]\nname = "t"\ncreated_after = "2026-05-01T00:00:00Z"\n'
+        'closed_before = "2026-10-10T00:00:00Z"\ndata_dir = "../data"\nresults_dir = "../res"\n'
+        '[universe]\nvenues = ["polymarket"]\nper_cell = 10\n',
+        encoding="utf-8",
+    )
+    ok, _ = pm.parse_market(market(question="Fed cut by September 15?"))
+    late, _ = pm.parse_market(market(question="Fed cut by September 10?", conditionId="0xl"))
+    late.extra.pop("title_deadline")  # saved before the rule existed
+    (tmp_path / "data").mkdir()
+    cand = tmp_path / "data" / "candidates.jsonl.gz"
+    write_jsonl(cand, [ok, late])
+    assert cli.main(["collect", str(toml), "--reuse"]) == 0
+    chosen = list(read_jsonl(tmp_path / "data" / "questions.jsonl", Question))
+    assert [q.id for q in chosen] == [ok.id]
+    assert len(list(read_jsonl(cand, Question))) == 2  # saved candidates are left untouched

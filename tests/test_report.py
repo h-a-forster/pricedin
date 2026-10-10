@@ -8,7 +8,7 @@ from fixtures.synthetic import ECHO, INFORMED, make_study
 
 from pricedin import plots, report
 from pricedin.cli import _questions, _snapshots, load_all_forecasts, study_split
-from pricedin.eval import pnl
+from pricedin.eval import hypotheses, pnl
 from pricedin.eval.evaluate import evaluate
 from pricedin.eval.inference import holm
 from pricedin.eval.panel import build_panel
@@ -45,14 +45,34 @@ def test_formatters():
     assert plots.short_key("claude-cli:claude-opus-5-5@low|news") == "claude-opus-5-5@low · news"
 
 
-def test_primary_family_is_holm_over_all_keys(study):
+def test_primary_family_is_one_holm_family_over_h1_and_h2(study):
     ev = report.load_evaluation(study.results_dir)
     fam = report.primary_family(ev)
+    assert report.primary_family is hypotheses.primary_family  # one source of truth
     assert len(fam) == len(KEYS) * len(study.horizons)
-    p = np.array([r["p_h1"] for r in fam])
-    assert np.allclose([r["p_h1_holm"] for r in fam], holm(p))
+    p = np.array([[r["p_h1"], r["p_h2"]] for r in fam]).ravel()
+    adj = np.array([[r["p_h1_holm"], r["p_h2_holm"]] for r in fam]).ravel()
+    assert np.allclose(adj, holm(p))  # H1 and H2 adjusted together
     for r in fam:
+        res = ev["keys"][r["key"]]
+        d = res["by_horizon"][r["horizon"]]["forecasters"][r["key"]]["models"]["pool"]
+        assert r["p_h2"] == d["delta_vs_market_recal"]["brier"]["p_greater"]  # one-sided
         assert r["reject_h2"] == (r["p_h2_holm"] < 0.05 and r["delta"] > 0)
+        assert r["reject_h1"] == (r["p_h1_holm"] < 0.05)
+
+
+def test_cluster_sensitivity_rows(study):
+    ev = report.load_evaluation(study.results_dir)
+    rows = hypotheses.cluster_sensitivity(ev)
+    assert len(rows) == len(KEYS) * len(study.horizons) * 3
+    by = {(r["key"], r["horizon"], r["clustering"]): r for r in rows}
+    fam = {(r["key"], r["horizon"]): r for r in report.primary_family(ev)}
+    for (k, h), f in fam.items():
+        assert by[(k, h, "event")]["p_h1"] == f["p_h1"]
+        assert by[(k, h, "event")]["p_h2"] == f["p_h2"]
+        # the synthetic study has fewer series and resolution days than events
+        assert by[(k, h, "series")]["n_clusters_h1"] <= by[(k, h, "event")]["n_clusters_h1"]
+        assert by[(k, h, "resolution_date")]["c"] == pytest.approx(f["c"])
 
 
 def test_write_report(study):
@@ -69,6 +89,8 @@ def test_write_report(study):
     ):
         assert heading in text
     assert "### Contested markets" not in text  # no subsets in this evaluation
+    assert "### Clustering sensitivity" in text and "resolution date" in text
+    assert "No early close" not in text
     assert "| forecaster | h | n test | market |" in text
     s = json.loads((study.results_dir / "summary.json").read_text(encoding="utf-8"))
     assert s["featured"] in KEYS

@@ -4,9 +4,9 @@ The report follows the pre-registered plan (``docs/preregistration.md``): the sa
 hypotheses (H1 encompassing, H2 out-of-sample gain over ``market_recal``), calibration, secondary
 analyses and P&L after fees. It states numbers, not conclusions.
 
-The primary family is re-adjusted here across every horizon x forecaster x condition, as
-pre-registered. ``evaluate`` runs one forecaster key at a time, so the ``primary`` block in each
-key's results is Holm-adjusted over that key's horizons only.
+The primary family (H1 and H2 x forecaster|condition x horizon, one Holm adjustment) and the
+clustering sensitivity come from ``pricedin.eval.hypotheses``, the same code that writes them to
+``evaluation.json``.
 
 Formats: Brier and its differences to 4 decimals; Delta = loss(benchmark) - loss(model), so a
 positive Delta means the model is better; p-values to 3 decimals; money in dollars.
@@ -20,9 +20,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
-from pricedin.eval.inference import holm
+from pricedin.eval.hypotheses import cluster_sensitivity, primary_family
 from pricedin.plots import HORIZON_ORDER, short_key
 from pricedin.schema import read_jsonl
 from pricedin.universe import Study
@@ -112,45 +110,6 @@ def _delta(m: dict[str, Any], bench: str = "market_recal", loss: str = "brier") 
 
 def _enc(res: dict[str, Any], key: str, h: str) -> dict[str, Any]:
     return _fblock(res, key, h).get("encompassing", {}).get("full", {})
-
-
-def primary_family(evaluation: dict[str, Any]) -> list[dict[str, Any]]:
-    """H1 and H2 for every forecaster|condition x horizon (pooled "all" excluded), each
-    Holm-adjusted across the whole family. H2 rejects only when the gain is positive."""
-    alpha = 0.05
-    rows = []
-    for key, res in evaluation["keys"].items():
-        alpha = res["meta"].get("alpha", alpha)
-        for h in _horizons(res):
-            pool = _model(res, key, h, "pool")
-            d = _delta(pool) or {}
-            e = _enc(res, key, h)
-            rows.append(
-                {
-                    "key": key,
-                    "horizon": h,
-                    "n_test": _fblock(res, key, h).get("n_test"),
-                    "delta": d.get("mean"),
-                    "lo": d.get("lo"),
-                    "hi": d.get("hi"),
-                    "p_h2": d.get("p"),
-                    "c": e.get("coef", {}).get("llm"),
-                    "c_z": e.get("llm_adds_info", {}).get("z"),
-                    "p_h1": e.get("llm_adds_info", {}).get("p"),
-                    "b": e.get("coef", {}).get("market"),
-                }
-            )
-    for test in ("h1", "h2"):
-        p = np.array([r[f"p_{test}"] if _ok(r[f"p_{test}"]) else np.nan for r in rows], float)
-        adj = holm(p) if len(p) else p
-        for r, a in zip(rows, adj, strict=True):
-            r[f"p_{test}_holm"] = None if np.isnan(a) else float(a)
-    for r in rows:
-        r["reject_h2"] = bool(
-            r["p_h2_holm"] is not None and r["p_h2_holm"] < alpha and (r["delta"] or 0) > 0
-        )
-        r["reject_h1"] = bool(r["p_h1_holm"] is not None and r["p_h1_holm"] < alpha)
-    return rows
 
 
 def featured_key(evaluation: dict[str, Any]) -> str:
@@ -330,8 +289,9 @@ def _headline_section(ev: dict[str, Any]) -> list[str]:
         "95% CI from an event-clustered bootstrap. "
         "c is the LLM coefficient in logit(y) = a + b·logit(market) + c·logit(LLM), "
         "fitted on the full sample with event-clustered (CR1) errors. "
-        f"Holm adjustment is over all {len(fam)} forecaster × horizon tests, "
-        "separately for H1 and H2.",
+        f"Holm adjustment is over all {2 * len(fam)} tests as one family "
+        "(H1 and H2 × forecaster × horizon). "
+        "H2 p is one-sided (Δ > 0); H1 p is two-sided (c ≠ 0).",
         "",
     ]
     rows = []
@@ -375,7 +335,7 @@ def _headline_section(ev: dict[str, Any]) -> list[str]:
             "llrrrrrrrrr",
         ),
         "",
-        "\\* rejects at α = 0.05 after Holm adjustment. H2 counts only gains (Δ > 0).",
+        "\\* rejects at α = 0.05 after Holm adjustment.",
         "",
     ]
     pooled = []
@@ -460,6 +420,48 @@ def _subset_rows(res: dict[str, Any], key: str, name: str) -> list[list[str]]:
             [short_key(key), h, str(fbk.get("n_test", "–")), fci(d), fp((d or {}).get("p"))]
         )
     return rows
+
+
+CLUSTER_LABELS = {
+    "event": "event (primary)",
+    "series": "series",
+    "resolution_date": "resolution date",
+}
+
+
+def _cluster_section(ev: dict[str, Any]) -> list[str]:
+    rows = cluster_sensitivity(ev)
+    if not any(r["clustering"] != "event" for r in rows):
+        return []
+
+    def n(x: Any) -> str:
+        return "–" if x is None else str(x)
+
+    table_rows = [
+        [
+            short_key(r["key"]),
+            r["horizon"],
+            CLUSTER_LABELS.get(r["clustering"], r["clustering"]),
+            n(r["n_clusters_h1"]),
+            fp(r["p_h1"]),
+            n(r["n_clusters_h2"]),
+            fci({"mean": r["delta"], "lo": r["lo"], "hi": r["hi"]}),
+            fp(r["p_h2"]),
+        ]
+        for r in rows
+    ]
+    header = ["forecaster", "h", "clusters by", "H1 clusters", "H1 p"]
+    header += ["H2 clusters", "Δ [95% CI]", "H2 p"]
+    return [
+        "### Clustering sensitivity",
+        "",
+        "H1 and H2 with errors clustered by series (Kalshi series; Polymarket series, else "
+        "event) or by resolution date (UTC day), instead of by event. Same fits. Unadjusted "
+        "p-values: H1 two-sided, H2 one-sided. Not part of the Holm family.",
+        "",
+        table(header, table_rows, "lllrrrrr"),
+        "",
+    ]
 
 
 def _secondary_section(ev: dict[str, Any]) -> list[str]:
@@ -548,7 +550,6 @@ def _secondary_section(ev: dict[str, Any]) -> list[str]:
             "Contested markets",
             "Rows whose market mid was inside the contested band at the snapshot.",
         ),
-        ("no_early_close", "No early close", "Questions whose market did not close early."),
     ):
         rows = [r for k in keys for r in _subset_rows(ev["keys"][k], k, name)]
         if rows:
@@ -564,6 +565,8 @@ def _secondary_section(ev: dict[str, Any]) -> list[str]:
                 ),
                 "",
             ]
+
+    out += _cluster_section(ev)
 
     for dim in ("category", "venue"):
         rows = []

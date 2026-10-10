@@ -27,7 +27,10 @@ UTC ISO 8601 with a `Z` suffix. Probabilities are for the YES side.
   the market was listed:
   - Polymarket: `endDate`.
   - Kalshi: `expected_expiration_time` minus a per-series settlement buffer. The buffer is
-    estimated only from markets in that series that closed before the question was listed.
+    the 10th percentile of the gap between expected expiration and close, over markets in
+    that series that closed in the 180 days before the question was listed (at least 3, else
+    0). A low quantile, because an early close only ever widens the gap. The estimate is not
+    shown to the model; the rules text states the deadline.
 
   It is never the actual close. An early close, such as a "by <date>" market resolving YES,
   depends on the outcome.

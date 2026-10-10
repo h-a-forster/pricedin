@@ -60,8 +60,9 @@ def cluster_bootstrap_mean(
 ) -> dict[str, Any]:
     """Cluster bootstrap of the row mean of ``x``.
 
-    Returns the mean, percentile CI, bootstrap SE and a two-sided p-value for ``mean == null``
-    computed by centring the bootstrap distribution on the null.
+    Returns the mean, percentile CI, bootstrap SE, a two-sided p-value for ``mean == null``
+    computed by centring the bootstrap distribution on the null, and ``p_greater``, a one-sided
+    p-value for H1: mean > null (the share of bootstrap means at or below the null, +1 corrected).
     """
     x = np.asarray(x, dtype=float)
     codes = cluster_codes(clusters)
@@ -69,7 +70,8 @@ def cluster_bootstrap_mean(
     est = float(x.mean()) if x.size else float("nan")
     out: dict[str, Any] = {"mean": est, "n": int(x.size), "n_clusters": G}
     if G < 2:
-        return out | {"lo": float("nan"), "hi": float("nan"), "se": float("nan"), "p": None}
+        nan = float("nan")
+        return out | {"lo": nan, "hi": nan, "se": nan, "p": None, "p_greater": None}
     sums = np.bincount(codes, weights=x, minlength=G)
     counts = np.bincount(codes, minlength=G).astype(float)
     W = bootstrap_weights(G, B, _rng(seed))
@@ -77,7 +79,9 @@ def cluster_bootstrap_mean(
     lo, hi = np.quantile(draws, [alpha / 2, 1 - alpha / 2])
     extreme = np.abs(draws - est) >= abs(est - null)
     p = (1 + int(extreme.sum())) / (B + 1)
-    return out | {"lo": float(lo), "hi": float(hi), "se": float(draws.std(ddof=1)), "p": p}
+    p_greater = (1 + int((draws <= null).sum())) / (B + 1)
+    se = float(draws.std(ddof=1))
+    return out | {"lo": float(lo), "hi": float(hi), "se": se, "p": p, "p_greater": p_greater}
 
 
 def paired_bootstrap(
@@ -90,7 +94,8 @@ def paired_bootstrap(
     alpha: float = 0.05,
 ) -> dict[str, Any]:
     """Cluster bootstrap of Delta = loss(benchmark) - loss(model); positive means the model is
-    better. Keys: mean, lo, hi, se, p (two-sided, H0: Delta = 0), n, n_clusters."""
+    better. Keys: mean, lo, hi, se, p (two-sided, H0: Delta = 0), p_greater (one-sided,
+    H1: Delta > 0), n, n_clusters."""
     d = np.asarray(loss_benchmark, dtype=float) - np.asarray(loss_model, dtype=float)
     return cluster_bootstrap_mean(d, clusters, B=B, seed=seed, alpha=alpha)
 

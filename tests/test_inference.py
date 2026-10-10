@@ -53,6 +53,24 @@ def test_paired_bootstrap_sign_p_and_determinism():
     )
 
 
+def test_paired_bootstrap_one_sided_p():
+    rng = np.random.default_rng(5)
+    cl = np.repeat(np.arange(80), 2)
+    bench = rng.random(160) + 0.2
+    better = I.paired_bootstrap(bench, bench - 0.05 + 0.02 * rng.normal(size=160), cl, B=400)
+    worse = I.paired_bootstrap(bench, bench + 0.05 + 0.02 * rng.normal(size=160), cl, B=400)
+    # model clearly better: one-sided p at its floor; clearly worse: one-sided p near 1
+    assert better["p_greater"] == pytest.approx(1 / 401)
+    assert worse["p_greater"] == pytest.approx(1.0)
+    assert worse["p"] < 0.01  # the two-sided p does not see direction
+    d = rng.normal(0.01, 0.1, 160)
+    r = I.paired_bootstrap(d, np.zeros(160), cl, B=400, seed=1)
+    W = I.bootstrap_weights(80, 400, np.random.default_rng(1))
+    sums = np.bincount(I.cluster_codes(cl), weights=d)
+    draws = (W @ sums) / (W @ np.full(80, 2.0))
+    assert r["p_greater"] == pytest.approx((1 + (draws <= 0).sum()) / 401)
+
+
 def test_generic_bootstrap_matches_fast_mean():
     rng = np.random.default_rng(3)
     cl = np.repeat(np.arange(40), 4)

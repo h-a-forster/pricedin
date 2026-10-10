@@ -65,8 +65,16 @@ def test_numbers_are_sane(run):
     assert pnl["meta"]["n_approximate_rows"] == groups["venue:polymarket"]["n_rows"]
     assert groups["venue:kalshi"]["models"]["pool"]["n_approximate"] == 0
     # secondary subsets ran
-    for name in ("contested", "no_early_close"):
-        assert "error" not in ev["keys"][INF]["subsets"][name]
+    assert set(ev["keys"][INF]["subsets"]) == {"contested"}  # no outcome-conditioned subset
+    assert "error" not in ev["keys"][INF]["subsets"]["contested"]
+    # one Holm family over H1 and H2; the sensitivity rows sit outside it
+    fam = ev["primary_family"]
+    assert len(fam) == 2 * 3 and all("p_h1_holm" in r and "p_h2_holm" in r for r in fam)
+    assert {r["clustering"] for r in ev["cluster_sensitivity"]} == {
+        "event",
+        "series",
+        "resolution_date",
+    }
 
 
 @pytest.mark.slow
@@ -78,7 +86,7 @@ def test_report_text(run):
         "## Calibration",
         "## Secondary analyses",
         "### Contested markets",
-        "### No early close",
+        "### Clustering sensitivity",
         "### By category",
         "### By venue",
         "### Walk-forward",

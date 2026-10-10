@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from pricedin.http import HttpClient, HttpError
@@ -236,6 +236,61 @@ def self_contained_title(question: str, event_title: str) -> str:
     return f"{q} ({ev})" if missing else q
 
 
+# --- title deadline --------------------------------------------------------------------------
+
+_MONTHS = {
+    m: i + 1
+    for i, m in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    )
+}
+# "by|on|before [Weekday,] <Month> <day>[st][, <year>]"; a day range "July 2-3" keeps its end.
+# Period forms like "in July 2026" are deliberately not matched (monthly data is released later).
+_TITLE_DEADLINE = re.compile(
+    r"(?i)\b(?:by|on|before)\s+(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s+)?"
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|"
+    r"sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?!\d)"
+    r"(?:st|nd|rd|th)?(?:\s*[-\u2013]\s*(\d{1,2})(?!\d))?(?:,?\s+(\d{4})(?!\d))?"
+)
+# End of the named day in US Eastern. tzdata is not guaranteed on Windows, so use EST (UTC-5)
+# year-round: 23:59 EST is the later of the two readings, so it never excludes more.
+_ET_CONSERVATIVE = timedelta(hours=-5)
+# A title deadline this far before endDate means horizons would fall after the question was
+# effectively decided.
+TITLE_DEADLINE_SLACK = timedelta(days=1)
+
+
+def title_deadline(title: str, close: datetime, created: datetime) -> datetime | None:
+    """End (23:59 ET, as UTC) of the specific day the title names as its deadline, or None.
+
+    Listing-time only: uses the title, endDate (``close``) and createdAt. The first
+    "by|on|before <Month> <day>[, <year>]" wins. Without a year, the day is the first one on or
+    after the creation date (in ET), so a December listing asking "by January 5" means next year.
+    """
+    m = _TITLE_DEADLINE.search(title)
+    if not m:
+        return None
+    month = _MONTHS[m.group(1).lower()[:3]]
+    day = int(m.group(3) or m.group(2))
+    created_et = (created + _ET_CONSERVATIVE).date()
+    if m.group(4):
+        years = [int(m.group(4))]
+    else:
+        years = list(range(created_et.year, max(created_et.year, close.year) + 2))
+    for y in years:
+        try:
+            named = date(y, month, day)
+        except ValueError:  # e.g. February 30, or February 29 outside a leap year
+            continue
+        if m.group(4) or named >= created_et:
+            return datetime(y, month, day, 23, 59, tzinfo=UTC) - _ET_CONSERVATIVE
+    return None
+
+
+def question_title_deadline(q: Question) -> datetime | None:
+    return title_deadline(q.title, q.close, parse_time(q.created_at))
+
+
 # --- market -> Question ----------------------------------------------------------------------
 
 
@@ -305,11 +360,15 @@ def parse_market(market: dict[str, Any]) -> tuple[Question | None, str]:
     }
     if flags:
         extra["rules_flag"] = flags
+    title = self_contained_title(str(market.get("question") or ""), str(ev.get("title") or ""))
+    deadline = title_deadline(title, scheduled, created)
+    if deadline is not None:
+        extra["title_deadline"] = to_iso(deadline)
     q = Question(
         id=f"polymarket:{cid}",
         venue="polymarket",
         event_id=f"polymarket:{ev.get('id') or cid}",
-        title=self_contained_title(str(market.get("question") or ""), str(ev.get("title") or "")),
+        title=title,
         rules=rules,
         category=category,
         created_at=to_iso(created),
@@ -350,6 +409,10 @@ def eligible(
         return "too_short"
     if q.volume < min_volume:
         return "low_volume"
+    # Recomputed from the Question (not extra) so saved candidates are re-checked on --reuse.
+    deadline = question_title_deadline(q)
+    if deadline is not None and q.close - deadline > TITLE_DEADLINE_SLACK:
+        return "title_deadline_before_end"
     return ""
 
 

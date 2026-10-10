@@ -106,3 +106,26 @@ The primary family is Holm-adjusted across horizons × forecasters × conditions
   information from after the snapshot. This affects which questions are sampled, not how
   the market and the LLM compare on them.
 - **Polymarket quotes.** Polymarket has no historical bid/ask, so its P&L is approximate.
+
+## Amendments (2026-10-10, before any forecast was scored)
+
+- **One primary family.** H1 and H2 for every forecaster × condition × horizon form one family,
+  Holm-adjusted together. H2 is one-sided (Δ > 0). Its p-value is the share of bootstrap means
+  at or below zero, with a +1 correction. H1 stays two-sided. CIs stay two-sided 95%.
+- **No early-close subset.** The "questions with no early close" subset is removed. An early
+  close of a "by <date>" market means YES, so the subset conditions on the outcome.
+- **Clustering sensitivity.** H1 and H2 are also reported with clusters by series and by
+  resolution date (UTC day of the actual close). Series is the Kalshi series, or the
+  Polymarket series when set, else the event. These rows are not in the Holm family. Event
+  clustering stays primary.
+- **Kalshi anchor.** The settlement buffer is the 10th percentile of prior markets' gaps, not
+  the median. Early YES closes only enlarge the gap. The estimated deadline is no longer shown
+  to the model. The model reads the deadline from the rules text.
+- **Polymarket day deadlines.** A question is excluded when its title names a specific day
+  deadline ("by/on/before <Month> <day>") more than one day before `endDate`. Snapshots taken
+  from `endDate` would fall after the question was decided.
+- **Reference close.** Horizons hang on the deadline known at listing: Polymarket `endDate`,
+  Kalshi expected expiration minus the buffer above. Never on the actual close, which an early
+  YES close makes depend on the outcome. A snapshot that falls after the actual close is
+  dropped. The actual close sets the train/test split only. This replaces the "earlier of the
+  actual close and the scheduled end" rule in the Data section.

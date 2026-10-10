@@ -107,6 +107,22 @@ def cmd_collect(args: argparse.Namespace) -> int:
     if args.reuse and study.candidates_path.exists():
         candidates = [q for q in read_jsonl(study.candidates_path, Question) if q.venue in venues]
         _log(f"reusing {len(candidates)} candidates from {study.candidates_path}")
+        if "polymarket" in venues:  # re-apply eligibility, so rules added since the scan count
+            n0 = len(candidates)
+            pm_eligible = _venue("polymarket").eligible
+            candidates = [
+                q
+                for q in candidates
+                if q.venue != "polymarket"
+                or not pm_eligible(
+                    q,
+                    created_after=study.created_after,
+                    closed_before=study.closed_before,
+                    min_open_days=study.min_open_days,
+                    min_volume=study.min_volume.get("polymarket", 0.0),
+                )
+            ]
+            _log(f"[polymarket] {n0 - len(candidates)} saved candidates no longer eligible")
     else:
         if study.candidates_path.exists():  # keep other venues' candidates from earlier runs
             candidates = [
@@ -338,9 +354,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         results["keys"][k] = res
     results["joint"] = _joint(questions, snapshots, forecasts, keys, study, split, eps, B)
 
-    from pricedin.report import primary_family
+    from pricedin.eval.hypotheses import cluster_sensitivity, primary_family
 
     results["primary_family"] = primary_family(results)
+    results["cluster_sensitivity"] = cluster_sensitivity(results)
     (out_dir / "evaluation.json").write_text(
         json.dumps(results, indent=1, allow_nan=False) + "\n", encoding="utf-8"
     )
@@ -384,6 +401,7 @@ def _joint(questions, snapshots, forecasts, keys, study, split, eps, B) -> dict[
                 include_walk_forward=False,
                 include_breakdowns=False,
                 include_reliability=False,
+                include_cluster_sensitivity=False,
             )
         except Exception as exc:  # recorded rather than failing the evaluation
             out[name] = {"error": f"{type(exc).__name__}: {exc}"}
@@ -391,17 +409,14 @@ def _joint(questions, snapshots, forecasts, keys, study, split, eps, B) -> dict[
 
 
 def _subsets(panel, key, questions, split, a, eps, B) -> dict[str, Any]:
-    """Secondary analyses on pre-registered subsets (no breakdowns, no walk-forward)."""
-    import numpy as np
+    """Secondary analyses on pre-registered subsets (no breakdowns, no walk-forward).
 
+    There is no early-close subset: an early close of a "by <date>" market means YES, so
+    selecting on it conditions on the outcome."""
     from pricedin.eval.evaluate import evaluate
 
     lo, hi = a.get("contested", [0.05, 0.95])
-    early = {q.id: bool(q.extra.get("early_close", False)) for q in questions}
-    masks = {
-        "contested": (panel.market >= lo) & (panel.market <= hi),
-        "no_early_close": np.array([not early.get(q, False) for q in panel.question_id]),
-    }
+    masks = {"contested": (panel.market >= lo) & (panel.market <= hi)}
     out: dict[str, Any] = {}
     for name, mask in masks.items():
         sub = panel.subset(mask)
@@ -417,6 +432,7 @@ def _subsets(panel, key, questions, split, a, eps, B) -> dict[str, Any]:
                 include_walk_forward=False,
                 include_breakdowns=False,
                 include_reliability=False,
+                include_cluster_sensitivity=False,
             )
         except Exception as exc:  # a tiny subset can be unfittable; record why
             out[name] = {"error": f"{type(exc).__name__}: {exc}"}

@@ -29,6 +29,13 @@ def resolved_at(q: Question) -> str:
     return str(q.extra.get("actual_close") or q.close_at)
 
 
+def series_id(q: Question) -> str:
+    """Series cluster label: ``extra["series"]`` (Kalshi series ticker, Polymarket
+    ``seriesSlug``) when set, else the event id."""
+    s = q.extra.get("series")
+    return f"{q.venue}:series:{s}" if s else str(q.event_id)
+
+
 def forecaster_key(forecaster: str, condition: str) -> str:
     return f"{forecaster}|{condition}"
 
@@ -61,6 +68,7 @@ class Panel:
     as_of: np.ndarray  # datetime64[s], naive UTC
     eps: float = 0.01
     dropped: dict[str, int] = field(default_factory=dict)
+    series: np.ndarray | None = None  # sensitivity cluster; None means use event_id
 
     def __len__(self) -> int:
         return int(self.y.size)
@@ -83,6 +91,15 @@ class Panel:
                 kw[f.name] = v[mask]
         kw["forecasts"] = {k: v[mask] for k, v in self.forecasts.items()}
         return replace(self, **kw)
+
+    def sensitivity_clusters(self) -> dict[str, np.ndarray]:
+        """Alternative cluster labels for the clustering sensitivity analysis (event stays
+        primary): ``series`` and ``resolution_date`` (UTC day of the resolution time)."""
+        series = self.series if self.series is not None else self.event_id
+        return {
+            "series": series,
+            "resolution_date": self.close_at.astype("datetime64[D]").astype(str).astype(object),
+        }
 
 
 def build_panel(
@@ -144,6 +161,7 @@ def build_panel(
         as_of=col((to_dt64(r[2].as_of) for r in rows), "datetime64[s]"),
         eps=eps,
         dropped=dict(sorted(dropped.items())),
+        series=col((series_id(r[0]) for r in rows), object),
     )
 
 

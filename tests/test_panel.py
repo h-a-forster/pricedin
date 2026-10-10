@@ -128,3 +128,19 @@ def test_walk_forward_folds():
         assert np.all(p.as_of[f.test] >= f.start) and np.all(p.as_of[f.test] < f.end)
         tested += f.test
     assert tested.max() == 1
+
+
+def test_sensitivity_clusters_series_and_resolution_date():
+    qs = [_q(i, "2025-03-10T00:00:00Z") for i in range(3)]
+    qs[0].extra["series"] = "KXS"
+    qs[1].extra["series"] = "KXS"
+    qs[2].extra["actual_close"] = "2025-03-08T23:30:00Z"  # resolved early, a day before
+    a = "2025-03-07T00:00:00Z"
+    snaps = [_s(i, "1d", a) for i in range(3)]
+    fcs = [_f(i, "1d", a, 0.5) for i in range(3)]
+    p = build_panel(qs, snaps, fcs, [KEY], horizons=["1d"])
+    cl = p.sensitivity_clusters()
+    assert cl["series"].tolist() == ["kalshi:series:KXS", "kalshi:series:KXS", "E2"]  # no series
+    assert cl["resolution_date"].tolist() == ["2025-03-10", "2025-03-10", "2025-03-08"]
+    sub = p.subset(np.array([False, True, True]))
+    assert sub.sensitivity_clusters()["series"].tolist() == ["kalshi:series:KXS", "E2"]

@@ -2,9 +2,10 @@
 
 ``evaluate`` fits every model on the training period, scores it on the embargoed test period,
 and reports score differences with event-clustered bootstrap CIs, the forecast-encompassing test,
-calibration, breakdowns by category and venue, and a walk-forward robustness check. The primary
-hypothesis family is Delta Brier(pool vs market_recal) across horizons x forecasters, Holm
-adjusted. The result is a plain JSON-serialisable dict and is deterministic given ``seed``.
+calibration, breakdowns by category and venue, a clustering sensitivity (series and resolution
+date instead of event) and a walk-forward robustness check. The Holm-adjusted primary family is
+built from these results by ``hypotheses.primary_family``. The result is a plain
+JSON-serialisable dict and is deterministic given ``seed``.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from .inference import dm_test, encompassing_test, holm, paired_bootstrap
+from .inference import dm_test, encompassing_test, paired_bootstrap
 from .panel import Panel, split_at_quantile, split_masks, to_dt64, walk_forward
 from .pool import DEFAULT_L2, ModelSpec, fit_predict, pool_multi, standard_models
 from .scoring import brier_rows, ece, log_loss_rows, murphy, reliability_bins
@@ -73,6 +74,7 @@ def evaluate(
     walk_forward_min_train: int = 100,
     include_breakdowns: bool = True,
     include_reliability: bool = True,
+    include_cluster_sensitivity: bool = True,
 ) -> dict[str, Any]:
     """Evaluate the named models on ``panel``.
 
@@ -80,6 +82,9 @@ def evaluate(
     of close times. ``models`` is a subset of ``ALL_MODELS`` (default: all; ``market`` and
     ``market_recal`` are always included as benchmarks; ``pool_multi`` only runs with 2+ keys).
     Results are per horizon plus ``"all"`` (horizons pooled) when there are several horizons.
+    With ``include_cluster_sensitivity``, each forecaster block of an individual horizon also has
+    ``cluster_sensitivity``: H1 (encompassing, full sample) and H2 (Delta Brier pool vs
+    market_recal, test period) with clusters from ``Panel.sensitivity_clusters``.
     """
     keys = list(forecaster_keys) if forecaster_keys is not None else panel.keys
     wanted = list(dict.fromkeys([*BENCHMARKS, *(models or ALL_MODELS)]))
@@ -112,10 +117,13 @@ def evaluate(
         for k in keys:
             specs = [s for s in standard_models(k) if s.name in wanted]
             block["forecasters"][k] = _model_block(train, test, specs, cfg, f"{h}|{k}")
-            block["forecasters"][k]["encompassing"] = {
+            fb = block["forecasters"][k]
+            fb["encompassing"] = {
                 "train": _encompassing(train, k, cfg),
                 "full": _encompassing(hp, k, cfg),
             }
+            if include_cluster_sensitivity and h != "all":
+                fb["cluster_sensitivity"] = _cluster_sensitivity(hp, train, test, k, cfg, h)
         if "pool_multi" in wanted and len(keys) > 1:
             specs = [s for s in standard_models(keys[0]) if s.name in BENCHMARKS]
             specs.append(pool_multi(keys))
@@ -141,7 +149,6 @@ def evaluate(
             "delta": "loss(benchmark) - loss(model); positive = model better",
         },
         "by_horizon": by_h,
-        "primary": _primary_family(by_h, horizons, keys, alpha),
     }
     if include_walk_forward:
         result["walk_forward"] = wf
@@ -248,10 +255,50 @@ def _breakdown(test: Panel, probs, labels, cfg: _Cfg, seed: int) -> dict[str, An
     return out
 
 
-def _encompassing(p: Panel, key: str, cfg: _Cfg) -> dict[str, Any]:
+def _encompassing(p: Panel, key: str, cfg: _Cfg, clusters=None) -> dict[str, Any]:
     if len(p) < MIN_TRAIN or np.unique(p.y).size < 2:
         return {"skipped": "too few rows or one outcome class", "n": len(p)}
-    return encompassing_test(p.y, p.market, p.forecasts[key], p.event_id, eps=cfg.eps, l2=cfg.l2)
+    cl = p.event_id if clusters is None else clusters
+    return encompassing_test(p.y, p.market, p.forecasts[key], cl, eps=cfg.eps, l2=cfg.l2)
+
+
+def _cluster_sensitivity(
+    hp: Panel, train: Panel, test: Panel, key: str, cfg: _Cfg, h: str
+) -> dict[str, Any]:
+    """H1 and H2 with each alternative clustering. Same fits as the primary tests; only the
+    clusters (and so the errors, CIs and p-values) change."""
+    probs = None
+    if _skip_reason(train, test) is None:
+        specs = [s for s in standard_models(key) if s.name in ("market_recal", "pool")]
+        fp = fit_predict(specs, train.columns(), train.y, test.columns(), eps=cfg.eps, l2=cfg.l2)
+        probs = {name: p for name, (p, _) in fp.items()}
+    seed = derive_seed(cfg.seed, f"{h}|{key}")
+    full_cl, test_cl = hp.sensitivity_clusters(), test.sensitivity_clusters()
+    out: dict[str, Any] = {}
+    for name, cl in full_cl.items():
+        e = _encompassing(hp, key, cfg, clusters=cl)
+        h1 = (
+            e
+            if "skipped" in e
+            else {
+                "c": e["coef"]["llm"],
+                "z": e["llm_adds_info"]["z"],
+                "p": e["llm_adds_info"]["p"],
+                "n_clusters": e["n_clusters"],
+            }
+        )
+        h2: dict[str, Any] = {"skipped": "pool not fitted"}
+        if probs is not None:
+            h2 = paired_bootstrap(
+                brier_rows(test.y, probs["market_recal"]),
+                brier_rows(test.y, probs["pool"]),
+                test_cl[name],
+                B=cfg.B,
+                seed=seed,
+                alpha=cfg.alpha,
+            )
+        out[name] = {"h1": h1, "h2": h2}
+    return out
 
 
 def _walk_forward_block(hp: Panel, key: str, cfg: _Cfg, min_train: int) -> dict[str, Any]:
@@ -288,36 +335,6 @@ def _walk_forward_block(hp: Panel, key: str, cfg: _Cfg, min_train: int) -> dict[
             },
         }
     return {"n_folds": len(fold_info), "n_test": int(y.size), "folds": fold_info, "models": models}
-
-
-def _primary_family(by_h, horizons, keys, alpha) -> dict[str, Any]:
-    """Holm-adjust Delta Brier(pool vs market_recal) over individual horizons x forecasters
-    (the pooled ``all`` block is excluded: it re-uses the same rows)."""
-    family = []
-    for h in horizons:
-        for k in keys:
-            m = by_h[h]["forecasters"][k].get("models", {}).get("pool")
-            d = m["delta_vs_market_recal"]["brier"] if m else None
-            family.append(
-                {
-                    "horizon": h,
-                    "forecaster": k,
-                    "mean": None if d is None else d["mean"],
-                    "lo": None if d is None else d.get("lo"),
-                    "hi": None if d is None else d.get("hi"),
-                    "p": None if d is None else d.get("p"),
-                }
-            )
-    p = np.array([np.nan if r["p"] is None else r["p"] for r in family], dtype=float)
-    adj = holm(p)
-    for r, a in zip(family, adj, strict=True):
-        r["p_holm"] = None if np.isnan(a) else float(a)
-        r["reject"] = r["p_holm"] is not None and r["p_holm"] < alpha and r["mean"] > 0
-    return {
-        "hypothesis": "Delta Brier(pool vs market_recal) > 0, Holm over horizons x forecasters",
-        "alpha": alpha,
-        "family": family,
-    }
 
 
 def _jsonable(obj: Any) -> Any:

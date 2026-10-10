@@ -28,7 +28,8 @@ https://docs.polymarket.com/market-data/market-details#trading-fees, accessed 20
 - Current docs: ``fee = C x feeRate x p x (1 - p)``, takers only ("Makers are never charged
   fees"), rounded to 5 decimals USDC (fees below 0.00001 round to zero). The market's
   ``feeSchedule`` carries ``rate``, ``exponent`` ("exponent applied to the price component"),
-  ``takerOnly`` and ``rebateRate``; ``feesEnabled`` false means no fee.
+  ``takerOnly`` and ``rebateRate``; ``feesEnabled`` false means no fee (stored as ``enabled`` in
+  ``extra["fee"]``).
 - We read the exponent as the power of the price component p(1-p), so ``exponent = 1`` gives the
   documented formula. Exponents other than 1 are not in the current docs page; they appear in the
   rollout-era formula ``C x p x feeRate x (p(1-p))^exponent`` (Jan-Mar 2026, per
@@ -145,7 +146,8 @@ def raw_order_fee(terms: Mapping[str, Any] | None, fills: Fills, *, role: Role =
         m = float(terms.get("multiplier", 1.0))
         return sum(kalshi_raw_fee(c, p, fee_type=ft, multiplier=m, role=role) for p, c in fills)
     if kind == "polymarket":
-        if terms.get("fees_enabled", terms.get("feesEnabled", True)) is False:
+        enabled = terms.get("enabled", terms.get("fees_enabled", terms.get("feesEnabled", True)))
+        if enabled is False:
             return 0.0
         exponent = terms.get("exponent")
         kw = {
