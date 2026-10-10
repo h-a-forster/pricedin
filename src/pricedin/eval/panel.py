@@ -19,6 +19,16 @@ import numpy as np
 from ..schema import HORIZONS, Forecast, Question, Snapshot, parse_time
 
 
+def resolved_at(q: Question) -> str:
+    """When the outcome became known: the actual close if recorded, else ``close_at``.
+
+    Venue collectors anchor ``close_at`` on the scheduled end, and trading can run past it
+    (in-play sports) or stop before it (early resolution). Training rows must have resolved
+    before the split, so the split uses this time, not the anchor.
+    """
+    return str(q.extra.get("actual_close") or q.close_at)
+
+
 def forecaster_key(forecaster: str, condition: str) -> str:
     return f"{forecaster}|{condition}"
 
@@ -130,7 +140,7 @@ def build_panel(
         event_id=col((r[0].event_id for r in rows), object),
         category=col((r[0].category for r in rows), object),
         venue=col((r[0].venue for r in rows), object),
-        close_at=col((to_dt64(r[0].close_at) for r in rows), "datetime64[s]"),
+        close_at=col((to_dt64(resolved_at(r[0])) for r in rows), "datetime64[s]"),
         as_of=col((to_dt64(r[2].as_of) for r in rows), "datetime64[s]"),
         eps=eps,
         dropped=dict(sorted(dropped.items())),
