@@ -26,11 +26,15 @@ UTC ISO 8601 with a `Z` suffix. Probabilities are for the YES side.
 - **`Question.close_at`**: the anchor for horizons. It is the deadline that was known when
   the market was listed:
   - Polymarket: `endDate`.
-  - Kalshi: `expected_expiration_time` minus a per-series settlement buffer. The buffer is
-    the 10th percentile of the gap between expected expiration and close, over markets in
-    that series that closed in the 180 days before the question was listed (at least 3, else
-    0). A low quantile, because an early close only ever widens the gap. The estimate is not
-    shown to the model; the rules text states the deadline.
+  - Kalshi: `expected_expiration_time` minus a per-series settlement buffer. Most series
+    close every market at the event whatever the outcome; mention markets, for example,
+    close when the speech ends, while expected expiration is 14 days later. Only "by <date>"
+    ladders close early, and on one outcome only. So the buffer is the smaller of two
+    medians of (expected expiration − close): one over earlier YES markets of the series, one
+    over earlier NO markets. A market counts only if its result was public before the
+    question was listed and it closed within the 180 days before. With fewer than 3 such
+    markets the buffer is 0. The estimate is not shown to the model; the rules text states
+    the deadline.
 
   It is never the actual close. An early close, such as a "by <date>" market resolving YES,
   depends on the outcome.

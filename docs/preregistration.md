@@ -134,9 +134,12 @@ The primary family is Holm-adjusted across horizons × forecasters × conditions
   resolution date (UTC day of the actual close). Series is the Kalshi series, or the
   Polymarket series when set, else the event. These rows are not in the Holm family. Event
   clustering stays primary.
-- **Kalshi anchor.** The settlement buffer is the 10th percentile of prior markets' gaps, not
-  the median. Early YES closes only enlarge the gap. The estimated deadline is no longer shown
-  to the model. The model reads the deadline from the rules text.
+- **Kalshi anchor.** The settlement buffer is the smaller of two per-series medians of
+  (expected expiration − close): one over earlier YES markets, one over earlier NO markets.
+  The pooled median was inflated in date ladders, where early YES closes widen the gap. The
+  outcome that runs to the deadline shows the template gap. A prior market counts only once
+  its result was public before the question was listed. The estimated deadline is no longer
+  shown to the model. The model reads the deadline from the rules text.
 - **Polymarket day deadlines.** A question is excluded when its title names a specific day
   deadline ("by/on/before <Month> <day>") more than one day before `endDate`. Snapshots taken
   from `endDate` would fall after the question was decided.
