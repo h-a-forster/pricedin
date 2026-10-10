@@ -19,11 +19,14 @@ of close, the 234 with non-round times are scheduled closes such as 03:59:59 or 
 But ``expected_expiration_time`` is usually the event time plus a settlement buffer that is a
 constant of the series template (mention markets +14 d, Billboard +9 d, CPI +1.5 h). Anchoring on
 it raw put as_of after the actual close for 61-73 % of eligible markets. So each question gets a
-per-series buffer estimated only from what was known when it was listed: the 10th percentile
-of max(0, expected - close_time) over markets of the same series that had already closed in the
-180 days before its ``created_at`` (at least 3, else 0). A low quantile, not the median, because
-an early close (a "by <date>" market resolving YES) only ever adds to the gap; markets that ran
-to their deadline show the template buffer itself. Then
+per-series buffer estimated only from what was known when it was listed. Most series close
+every market at the event, whatever the outcome (mention markets close when the speech ends);
+only "by <date>" ladders close early, and only on one outcome. So prior markets of the same
+series are split by result, the median of max(0, expected - close_time) is taken within each
+result, and the buffer is the smaller of the two: the outcome that runs to the deadline shows
+the template gap, the early-closing one only adds to it. A prior counts once its result was
+public before this market's ``created_at`` (``settlement_ts``, else the later of close and
+expected expiration) and it closed within the 180 days before (at least 3 priors, else 0). Then
 ``close_at`` = ``expected_expiration_time`` - buffer, and horizons never depend on when (or
 whether) this market closed early. ``scheduled_close_at`` is left empty: the estimate is not shown
 to the model, which reads the deadline from the rules text. Markets without expected_expiration_time
@@ -51,6 +54,7 @@ import bisect
 import logging
 import math
 import re
+import statistics
 import threading
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -72,7 +76,6 @@ PAGE = 1000
 MAX_RETRIES = 10  # 429s come in bursts when other scans share the IP
 BUFFER_LOOKBACK = timedelta(days=180)
 BUFFER_MIN_PRIOR = 3
-BUFFER_QUANTILE = 0.1
 
 # Series whose markets live at most a few days (sampled 2026-10-10: daily max 3.99 d open,
 # hourly 0.04 d, fifteen_min 0.01 d) can never pass a min_open_days >= 4 filter.
@@ -252,17 +255,21 @@ def scheduled_end(market: Mapping[str, Any]) -> datetime | None:
 
 
 class BufferIndex:
-    """Per-series settlement buffers, using only markets closed before a question was listed."""
+    """Per-series settlement buffers, using only markets settled before a question was listed."""
 
     def __init__(self, markets: Iterable[Mapping[str, Any]]):
         rows = []
         for m in markets:
             close, expected = _time(m.get("close_time")), scheduled_end(m)
-            if close is not None and expected is not None:
-                rows.append((close.timestamp(), max(0.0, (expected - close).total_seconds())))
+            result = m.get("result")
+            if close is None or expected is None or result not in ("yes", "no"):
+                continue
+            known = _time(m.get("settlement_ts")) or max(close, expected)
+            gap = max(0.0, (expected - close).total_seconds())
+            rows.append((known.timestamp(), close.timestamp(), gap, result))
         rows.sort()
-        self._closes = [r[0] for r in rows]
-        self._gaps = [r[1] for r in rows]
+        self._rows = rows
+        self._known = [r[0] for r in rows]
 
     def buffer(
         self,
@@ -271,23 +278,19 @@ class BufferIndex:
         lookback: timedelta = BUFFER_LOOKBACK,
         min_count: int = BUFFER_MIN_PRIOR,
     ) -> tuple[float, int]:
-        """(buffer hours, n priors): low-quantile gap of markets closed in [t - lookback, t)."""
+        """(buffer hours, n priors): the smaller per-result median gap of markets whose result
+        was public before ``listed_at`` and that closed in the ``lookback`` before it."""
         t = listed_at.timestamp()
-        lo = bisect.bisect_left(self._closes, t - lookback.total_seconds())
-        hi = bisect.bisect_left(self._closes, t)  # strictly before listing
-        n = hi - lo
+        hi = bisect.bisect_left(self._known, t)  # result public strictly before listing
+        lo_close = t - lookback.total_seconds()
+        gaps: dict[str, list[float]] = {"yes": [], "no": []}
+        for _, close, gap, result in self._rows[:hi]:
+            if close >= lo_close:
+                gaps[result].append(gap)
+        n = len(gaps["yes"]) + len(gaps["no"])
         if n < min_count:
             return 0.0, n
-        return _quantile(sorted(self._gaps[lo:hi]), BUFFER_QUANTILE) / 3600, n
-
-
-def _quantile(xs: list[float], q: float) -> float:
-    """Linear-interpolation quantile of sorted ``xs`` (inclusive: q=0 is the min)."""
-    pos = q * (len(xs) - 1)
-    i = int(pos)
-    if i + 1 >= len(xs):
-        return xs[-1]
-    return xs[i] + (pos - i) * (xs[i + 1] - xs[i])
+        return min(statistics.median(g) for g in gaps.values() if g) / 3600, n
 
 
 def settlement_buffer(

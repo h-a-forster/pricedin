@@ -241,45 +241,71 @@ def test_is_eligible_filters():
     assert not ok(close_time="2026-10-11T00:00:00Z")
 
 
-def _prior(close: str, gap: timedelta) -> dict:
-    return {"close_time": close, "expected_expiration_time": to_iso(utc(close) + gap)}
+def _prior(close: str, gap: timedelta, result: str = "no", settled: str | None = None) -> dict:
+    m = {
+        "close_time": close,
+        "expected_expiration_time": to_iso(utc(close) + gap),
+        "result": result,
+    }
+    if settled is not None:
+        m["settlement_ts"] = settled
+    return m
 
 
-def test_buffer_uses_only_markets_closed_before_listing():
+def test_buffer_uses_only_markets_settled_before_listing():
     listed = utc("2026-07-10T00:00:00Z")
     d14 = timedelta(days=14)
-    prior = [_prior(f"2026-07-0{i}T00:00:00Z", d14) for i in (1, 2, 3)]
+    prior = [_prior(f"2026-06-0{i}T00:00:00Z", d14) for i in (1, 2, 3)]  # known at close + 14 d
     after = [
         _prior("2026-07-10T00:00:00Z", timedelta(0)),  # closes at the listing instant: excluded
         _prior("2026-07-20T00:00:00Z", timedelta(0)),
         _prior("2026-07-21T00:00:00Z", timedelta(0)),
     ]
     assert K.settlement_buffer(prior + after, listed) == (14 * 24, 3)
-    # low quantile: early closes (expected after close by a lot) don't inflate it
-    mixed = prior[:2] + [_prior("2026-07-04T00:00:00Z", timedelta(days=100))]
-    mixed += [_prior("2026-07-05T00:00:00Z", timedelta(days=14))]
-    assert K.settlement_buffer(mixed, listed)[0] == 14 * 24
-    # even when most priors closed early, the buffer stays near the template's
-    many = [
-        _prior(f"2026-07-0{i}T00:00:00Z", timedelta(days=d))
-        for i, d in zip(range(1, 10), (14, 14, 30, 45, 60, 80, 100, 120, 150), strict=True)
+    # closed before listing but not yet settled: its result was not public, so excluded
+    late = [_prior(f"2026-07-0{i}T00:00:00Z", d14) for i in (1, 2, 3)]  # known Jul 15-17
+    assert K.settlement_buffer(late, listed) == (0.0, 0)
+    settled = [
+        _prior(f"2026-07-0{i}T00:00:00Z", d14, settled=f"2026-07-0{i}T01:00:00Z") for i in (1, 2, 3)
     ]
-    assert K.settlement_buffer(many, listed)[0] == 14 * 24
+    assert K.settlement_buffer(settled, listed) == (14 * 24, 3)
+
+
+def test_buffer_takes_the_smaller_per_result_median():
+    listed = utc("2026-08-01T00:00:00Z")
+    days = lambda d: timedelta(days=d)  # noqa: E731
+    # mention-style: every market closes at the event, both outcomes show the template gap
+    mention = [
+        _prior(f"2026-07-0{i}T00:00:00Z", days(14), r)
+        for i, r in zip(range(1, 7), ["yes", "no", "yes", "no", "no", "yes"], strict=True)
+    ]
+    assert K.settlement_buffer(mention, listed)[0] == pytest.approx(14 * 24)
+    # "by <date>" ladder: NO runs to the deadline (gap 0), YES closes early (large gaps)
+    ladder = [_prior(f"2026-06-0{i}T00:00:00Z", days(0), "no") for i in (1, 2, 3)]
+    ladder += [_prior(f"2026-06-1{i}T00:00:00Z", days(d), "yes") for i, d in ((1, 5), (2, 20))]
+    assert K.settlement_buffer(ladder, listed) == (0.0, 5)
+    # "not by <date>": the roles flip, still the deadline outcome's gap
+    flipped = [{**m, "result": "yes" if m["result"] == "no" else "no"} for m in ladder]
+    assert K.settlement_buffer(flipped, listed) == (0.0, 5)
+    # one class only: its median
+    assert K.settlement_buffer(ladder[3:] + [ladder[4]], listed)[0] == 20 * 24
 
 
 def test_buffer_min_count_lookback_and_zero_fallback():
     listed = utc("2026-07-10T00:00:00Z")
-    two = [_prior(f"2026-07-0{i}T00:00:00Z", timedelta(days=9)) for i in (1, 2)]
+    two = [_prior(f"2026-06-0{i}T00:00:00Z", timedelta(days=9)) for i in (1, 2)]
     assert K.settlement_buffer(two, listed) == (0.0, 2)
     assert K.settlement_buffer([], listed) == (0.0, 0)
     old = [_prior(f"2025-12-0{i}T00:00:00Z", timedelta(days=9)) for i in (1, 2, 3)]
-    assert K.settlement_buffer(old, listed) == (0.0, 0)  # older than 180 days
+    assert K.settlement_buffer(old, listed) == (0.0, 0)  # closed more than 180 days earlier
     assert K.settlement_buffer(old, listed, lookback=timedelta(days=365)) == (9 * 24, 3)
     # expected before close (delays): clipped to 0, not negative
     neg = [_prior(f"2026-07-0{i}T00:00:00Z", timedelta(hours=-5)) for i in (1, 2, 3)]
     assert K.settlement_buffer(neg, listed) == (0.0, 3)
-    # rows missing either time are ignored
+    # rows missing a time or a clean result are ignored
     assert K.settlement_buffer([{"close_time": "2026-07-01T00:00:00Z"}] * 5, listed) == (0.0, 0)
+    void = [{**m, "result": ""} for m in old]
+    assert K.settlement_buffer(void, listed, lookback=timedelta(days=365)) == (0.0, 0)
 
 
 def test_market_to_question_applies_buffer():
@@ -307,6 +333,7 @@ def test_list_candidates_buffer_from_prior_markets_only():
             "open_time": created,
             "close_time": close,
             "expected_expiration_time": to_iso(utc(close) + buffer),
+            "settlement_ts": to_iso(utc(close) + timedelta(hours=1)),
         }
 
     prior = [mk(f"P{i}", "2026-05-01T00:00:00Z", f"2026-06-0{i}T00:00:00Z") for i in (1, 2, 3)]
