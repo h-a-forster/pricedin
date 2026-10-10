@@ -20,6 +20,7 @@ import time
 from collections import Counter
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -169,12 +170,21 @@ def cmd_snapshots(args: argparse.Namespace) -> int:
                 missing.pop(f"{q.id}|{h}", None)
                 n_ok += 1
             else:
-                missing[f"{q.id}|{h}"] = err or "no observation within max_stale"
+                missing[f"{q.id}|{h}"] = err or _missing_reason(q, h)
             if i % 100 == 0:
                 _log(f"  {i}/{len(tasks)} ({n_ok} ok)")
     missing_path.write_text(json.dumps(missing, indent=1, sort_keys=True) + "\n", "utf-8")
     _log(f"{n_ok} snapshots written, {len(missing)} missing (see {missing_path.name})")
     return 0
+
+
+def _missing_reason(q: Question, horizon: str) -> str:
+    from pricedin.schema import HORIZONS
+
+    actual = q.extra.get("actual_close")
+    if actual and q.close - HORIZONS[horizon] >= parse_time(actual) - timedelta(seconds=60):
+        return "market closed before the snapshot time"
+    return "no observation within max_stale"
 
 
 def cmd_news(args: argparse.Namespace) -> int:
