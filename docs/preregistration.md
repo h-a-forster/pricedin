@@ -13,6 +13,22 @@ This is a *forecast-encompassing* question (Chong and Hendry 1986; Fair and Shil
 differs from "is the LLM as accurate as the market?". An LLM can be less accurate and still
 add information, and an equally accurate LLM can add none.
 
+## Scope
+
+This is a baseline, not a test of how LLMs are used for trading. In practice a model would
+research a question online before forecasting. Here it cannot: in a backtest, web search
+returns pages written after the snapshot. So the study measures three narrower things:
+
+- **A lower bound.** What the model adds from its own knowledge and reasoning, with no
+  research (`base`) or with light, time-stamped news (`news`).
+- **Where value comes from.** If `base` adds nothing and `news` adds something, the value is in
+  retrieval, not in the model's knowledge.
+- **A leak-proof harness.** Snapshots, prompts, fees and statistics that a stronger forecaster,
+  such as a research agent run prospectively, can be plugged into.
+
+A null result here does not show that LLM forecasters cannot beat markets. It shows that an
+unresearched one does not.
+
 ## Data
 
 - **Questions.** Binary Kalshi and Polymarket markets listed on or after 2026-07-01 and
