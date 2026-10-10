@@ -1,0 +1,68 @@
+{
+  "candidates": 13154,
+  "events": 6008,
+  "after_event_cap": 6008,
+  "sampled": 714,
+  "cells": [
+    {
+      "venue": "polymarket",
+      "category": "crypto",
+      "available": 36,
+      "sampled": 36
+    },
+    {
+      "venue": "polymarket",
+      "category": "culture",
+      "available": 136,
+      "sampled": 100
+    },
+    {
+      "venue": "polymarket",
+      "category": "economics",
+      "available": 63,
+      "sampled": 63
+    },
+    {
+      "venue": "polymarket",
+      "category": "finance",
+      "available": 75,
+      "sampled": 75
+    },
+    {
+      "venue": "polymarket",
+      "category": "other",
+      "available": 8,
+      "sampled": 8
+    },
+    {
+      "venue": "polymarket",
+      "category": "politics",
+      "available": 311,
+      "sampled": 100
+    },
+    {
+      "venue": "polymarket",
+      "category": "sports",
+      "available": 5046,
+      "sampled": 100
+    },
+    {
+      "venue": "polymarket",
+      "category": "tech",
+      "available": 103,
+      "sampled": 100
+    },
+    {
+      "venue": "polymarket",
+      "category": "weather",
+      "available": 32,
+      "sampled": 32
+    },
+    {
+      "venue": "polymarket",
+      "category": "world",
+      "available": 198,
+      "sampled": 100
+    }
+  ]
+}
