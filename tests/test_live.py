@@ -76,7 +76,8 @@ class FakeVenue:
         self.status_calls = 0
 
     def list_open(self, client, cfg, now):
-        return [replace(q, extra={**q.extra, "first_seen": to_iso(now)}) for q in self.markets.values()]  # fmt: skip
+        seen = {"first_seen": to_iso(now)}
+        return [replace(q, extra={**q.extra, **seen}) for q in self.markets.values()]
 
     def snapshot(self, client, q):
         self.snapshot_calls += 1
@@ -87,7 +88,9 @@ class FakeVenue:
 
     def status(self, client, q, cfg):
         self.status_calls += 1
-        return self.statuses.get(q.id, MarketStatus("open", anchor=self.markets[q.id].close_at))
+        if q.id in self.statuses:
+            return self.statuses[q.id]
+        return MarketStatus("open", anchor=self.markets[q.id].close_at)
 
 
 def fake_news(questions, snaps, out: Path):
@@ -217,6 +220,13 @@ def test_admission_filters_and_caps(tmp_path):
     a = s["admission"]
     assert a["low_volume"] == 1 and a["created_before"] == 1 and a["outside_max_days"] == 1
     assert a["admitted"] == 2 and a.get("category_cap", 0) + a.get("event_cap", 0) == 2
+
+
+def test_require_all_horizons(tmp_path):
+    clock = Clock(ANCHOR - timedelta(days=1))
+    venue = FakeVenue(clock, [make_q()])
+    s = go(make_cfg(require_all_horizons=True), tmp_path, clock, venue, dry_run=True)
+    assert s["admitted"] == 0 and s["admission"] == {"first_horizon_passed": 1}
 
 
 def test_max_tracked(tmp_path):
@@ -363,8 +373,12 @@ def test_resolution_writes_an_evaluable_view(tmp_path):
     assert q.id == "kalshi:M0" and q.outcome == 1 and q.close_at == to_iso(ANCHOR)
     assert q.extra["early_close"] is True and q.extra["live"] is True
     # the 1d and 1h windows came after the early close
-    rows = {r["horizon"]: r["reason"] for r in horizon_rows(tmp_path) if r["status"] == "missed"}
-    assert rows["1d"] == "closed_before_target"
+    rows = {
+        r["horizon"]: r["reason"]
+        for r in horizon_rows(tmp_path)
+        if r["status"] == "missed" and r["question_id"] == "kalshi:M0"
+    }
+    assert rows == {"1d": "closed_before_target", "1h": "closed_before_target"}
     views = sorted((tmp_path / "forecasts").glob("*.jsonl.gz"))
     assert [p.name for p in views] == ["constant_0.7__base.jsonl.gz"]
     panel = build_panel(
@@ -440,7 +454,8 @@ def test_kalshi_open_question_anchors_on_the_earlier_close():
 
 
 def test_kalshi_status_mapping():
-    m = {**KALSHI_MARKET, "status": "finalized", "result": "no", "close_time": "2026-11-04T21:50:00Z"}  # fmt: skip
+    close = "2026-11-04T21:50:00Z"
+    m = {**KALSHI_MARKET, "status": "finalized", "result": "no", "close_time": close}
     st = live.kalshi_status(m)
     assert st.state == "resolved" and st.outcome == 0 and st.actual_close == "2026-11-04T21:50:00Z"
     assert live.kalshi_status({**m, "status": "determined", "result": "yes"}).state == "closed"
@@ -477,9 +492,11 @@ def test_polymarket_open_question_and_status():
     closed = {**PM_MARKET, "closed": True, "closedTime": "2026-11-03 10:00:00+00"}
     st = live.polymarket_status({**closed, "outcomePrices": '["1", "0"]'})
     assert st.state == "resolved" and st.outcome == 1 and st.actual_close == "2026-11-03T10:00:00Z"
-    st = live.polymarket_status({**closed, "outcomePrices": '["0.5", "0.5"]', "umaResolutionStatus": "resolved"})  # fmt: skip
+    half = {**closed, "outcomePrices": '["0.5", "0.5"]', "umaResolutionStatus": "resolved"}
+    st = live.polymarket_status(half)
     assert st.state == "void"
-    st = live.polymarket_status({**closed, "outcomePrices": '["0.6", "0.4"]', "umaResolutionStatus": "proposed"})  # fmt: skip
+    pending = {**closed, "outcomePrices": '["0.6", "0.4"]', "umaResolutionStatus": "proposed"}
+    st = live.polymarket_status(pending)
     assert st.state == "closed"
 
 
@@ -509,7 +526,13 @@ def test_kalshi_list_open_with_mock_transport():
         if req.url.path.endswith("/series"):
             return httpx.Response(200, json={"series": [SERIES]})
         assert req.url.params["status"] == "open"
-        far = {**KALSHI_MARKET, "ticker": "KXUCLGAME-FAR-A", "expected_expiration_time": "2026-12-30T00:00:00Z", "close_time": "2026-12-30T00:00:00Z"}  # fmt: skip
+        late = "2026-12-30T00:00:00Z"
+        far = {
+            **KALSHI_MARKET,
+            "ticker": "KXUCLGAME-FAR-A",
+            "expected_expiration_time": late,
+            "close_time": late,
+        }
         return httpx.Response(200, json={"markets": [KALSHI_MARKET, far], "cursor": ""})
 
     now = datetime(2026, 10, 30, tzinfo=UTC)

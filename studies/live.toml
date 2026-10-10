@@ -1,0 +1,76 @@
+# pricedin study "live": prospective collection on open markets.
+#
+# Run one pass an hour: `pricedin live studies/live.toml --once` (cron, Task Scheduler or
+# .github/workflows/live.yml). Each pass tracks newly eligible open markets, takes a live order
+# book at 7 d / 1 d / 1 h before each market's scheduled close, forecasts it at that moment, and
+# records outcomes once markets settle. `pricedin merge` is not needed: each pass rewrites
+# data/live/questions.jsonl (resolved questions only) and data/live/forecasts/*.jsonl.gz, so
+# `pricedin evaluate studies/live.toml` works on whatever has resolved so far.
+#
+# Compared with v1 this removes three caveats: the prompt's date is the real date (no injected
+# date mismatch), Polymarket rows have a real bid/ask, and the volume filter only uses volume
+# traded before the market was first tracked.
+
+[study]
+name = "live"
+created_after = "2026-07-01T00:00:00Z"  # after the June 2026 training cutoff of every model
+closed_before = "2027-07-01T00:00:00Z"  # stop admitting markets that close after this
+min_open_days = 8
+horizons = ["7d", "1d", "1h"]
+data_dir = "../data/live"
+results_dir = "../results/live"
+
+[universe]
+# Read by `pricedin evaluate`/`status`; the collector's own filters are in [live].
+venues = ["kalshi", "polymarket"]
+per_event = 1
+per_cell = 30
+seed = "pricedin-live"
+
+[universe.min_volume]
+kalshi = 1000
+polymarket = 10000
+
+[live]
+venues = ["kalshi", "polymarket"]
+horizons = ["7d", "1d", "1h"]
+tolerance_minutes = 35      # a horizon is due within +-35 min of anchor - h (hourly passes)
+forecast_grace_minutes = 35 # a snapshot not forecast within this long is logged as missed
+max_days = 8                # track markets whose scheduled close is within the next 8 days
+min_open_days = 8           # as in v1: the market was listed at least 8 days before its close
+per_event = 1               # at most one market per event, ever
+per_category = 30           # at most 30 open tracked markets per (venue, category)
+max_tracked = 300           # at most 300 open tracked markets in total
+require_all_horizons = true # admit a market only while its 7d window is still ahead
+max_forecasts_per_pass = 60 # LLM calls per pass, across forecasters and conditions
+kalshi_anchor = "min"       # min(close_time, expected_expiration_time); see src/pricedin/live.py
+give_up_days = 30           # stop waiting for settlement this long after the anchor
+news_sources = ["wikipedia"]
+news_k = 25
+news_window_days = 14
+forecasters = ["claude-cli:claude-opus-5-5@low"]
+conditions = ["base", "news"]
+
+[live.min_volume]           # volume traded up to the moment a market is first tracked
+kalshi = 1000               # contracts
+polymarket = 10000          # USDC
+
+[live.category_caps]        # overrides per_category for these categories
+sports = 20
+crypto = 20
+
+[forecast]
+conditions = ["base", "news"]
+forecasters = ["claude-cli:claude-opus-5-5@low"]
+
+[analysis]
+eps = 0.01
+split = 0.5
+bootstrap = 2000
+seed = 0
+alpha = 0.05
+contested = [0.05, 0.95]
+
+[analysis.pnl]
+threshold = 0.02
+contracts = 100

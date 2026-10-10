@@ -590,6 +590,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("study")
     p.add_argument("--once", action="store_true", help="one pass, then exit (for cron)")
     p.add_argument("--dry-run", action="store_true", help="snapshot only, no LLM calls")
+    p.add_argument("-f", "--forecaster", action="append", help="replace [live] forecasters")
+    p.add_argument("--data-dir", help="state folder (default: the study's data_dir)")
+    p.add_argument("--max-forecasts", type=int, help="override max_forecasts_per_pass")
+    p.add_argument("--max-tracked", type=int, help="override max_tracked")
     p.set_defaults(func=cmd_live)
 
     p = sub.add_parser("status", help="row counts per stage")

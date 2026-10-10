@@ -1,0 +1,67 @@
+# Prospective collector: one `pricedin live` pass an hour, committing data/live back to the repo.
+#
+# Disabled by default. To enable: add an ANTHROPIC_API_KEY repository secret and set the
+# repository variable PRICEDIN_LIVE to "true" (Settings > Secrets and variables > Actions).
+# The forecaster here is the Anthropic API (`anthropic:`), not the claude CLI configured in
+# studies/live.toml, so its rows land in separate forecast files.
+#
+# GitHub delays scheduled runs (often 5-30 min, sometimes more) and may skip them under load;
+# a horizon whose +-35 min window gets no pass is logged as missed, never backfilled.
+
+name: live
+
+on:
+  schedule:
+    - cron: "7 * * * *" # hourly, off the top of the hour
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "snapshot only, no LLM calls"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pricedin-live
+  cancel-in-progress: false # never kill a pass mid-write; the next one waits
+
+jobs:
+  pass:
+    if: vars.PRICEDIN_LIVE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra anthropic
+
+      - name: Pass
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          args="--once --forecaster anthropic:claude-opus-5-5@low"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="$args --dry-run"; fi
+          uv run pricedin live studies/live.toml $args
+
+      - name: Commit data
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add data/live ':!data/live/.live.lock'
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "live: pass $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1

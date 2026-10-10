@@ -96,6 +96,7 @@ class LiveConfig:
     per_category: int = 30
     category_caps: dict[str, int] = field(default_factory=dict)
     max_tracked: int = 200
+    require_all_horizons: bool = False  # admit only while the earliest horizon is still ahead
     max_forecasts_per_pass: int = 40
     forecasters: list[str] = field(default_factory=list)
     conditions: list[str] = field(default_factory=lambda: ["base"])
@@ -140,6 +141,7 @@ class LiveConfig:
             per_category=int(raw.get("per_category", study.per_cell)),
             category_caps={k: int(v) for k, v in raw.get("category_caps", {}).items()},
             max_tracked=int(raw.get("max_tracked", 200)),
+            require_all_horizons=bool(raw.get("require_all_horizons", False)),
             max_forecasts_per_pass=int(raw.get("max_forecasts_per_pass", 40)),
             forecasters=list(raw.get("forecasters", f.get("forecasters", []))),
             conditions=list(raw.get("conditions", f.get("conditions", ["base"]))),
@@ -727,6 +729,10 @@ def eligible_open(q: Question, cfg: LiveConfig, now: datetime) -> str:
     # at least one horizon window must still be ahead
     if all(q.close - HORIZONS[h] + cfg.tolerance < now for h in cfg.horizons):
         return "no_horizon_left"
+    if cfg.require_all_horizons and any(
+        q.close - HORIZONS[h] + cfg.tolerance < now for h in cfg.horizons
+    ):
+        return "first_horizon_passed"
     return ""
 
 
@@ -870,7 +876,10 @@ def _run_pass(
     summary["admitted"] = len(admitted)
     summary["admission"] = dict(reasons)
 
-    # 2. horizons: due -> snapshot; window passed -> missed (never backfilled)
+    # 2. resolution first, so a closed market is not snapshotted
+    _resolve(cfg, state, http, adapters, listed, listing_ok, clock, summary)
+
+    # 3. horizons: due -> snapshot; window passed -> missed (never backfilled)
     for t in sorted(state.tracked.values(), key=lambda t: t.q.id):
         for h in cfg.horizons:
             key = (t.q.id, h)
@@ -920,7 +929,7 @@ def _run_pass(
     ]
     qmap = {qid: t.q for qid, t in state.tracked.items()}
 
-    # 3. news as of each snapshot (provably public before it)
+    # 4. news as of each snapshot (provably public before it)
     need_news = [s for s in recent if (s.question_id, s.horizon) not in state.news_keys]
     if need_news:
         try:
@@ -932,11 +941,8 @@ def _run_pass(
         except Exception as exc:
             summary["errors"].append(f"news: {type(exc).__name__}: {exc}")
 
-    # 4. forecasts (budgeted), and forecasts that can no longer be made in time
+    # 5. forecasts (budgeted), and forecasts that can no longer be made in time
     _forecast(cfg, state, recent, qmap, now, dry_run, provider_factory, cache, summary)
-
-    # 5. resolution
-    _resolve(cfg, state, http, adapters, listed, listing_ok, clock, summary)
 
     # 6. views for `pricedin evaluate`
     write_views(state)
