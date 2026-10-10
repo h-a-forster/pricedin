@@ -57,7 +57,7 @@ import re
 import statistics
 import threading
 import weakref
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -471,8 +471,13 @@ def list_candidates(
     series: Iterable[str] | None = None,
     workers: int = 8,
     progress: Callable[[int, int, int], None] | None = None,
+    skip_series: Collection[str] = (),
+    on_series: Callable[[str, list[Question]], None] | None = None,
 ) -> Iterator[Question]:
     """Every eligible resolved binary Kalshi market, one series at a time.
+
+    ``skip_series`` are left out (already scanned); ``on_series(ticker, questions)`` is called
+    once per finished series, before its questions are yielded, so a caller can checkpoint.
 
     ``series`` restricts the scan to those series tickers (as given, no frequency filter);
     otherwise every series from ``/series`` minus short-lived frequencies and combos.
@@ -486,6 +491,8 @@ def list_candidates(
     configure(client)
     all_series = fetch_series(client)
     tickers = list(series) if series is not None else scan_series(sorted(all_series), all_series)
+    skip = set(skip_series)
+    tickers = [t for t in tickers if t not in skip]
     cutoff = historical_cutoff(client)
     kw = dict(
         created_after=created_after,
@@ -539,7 +546,11 @@ def list_candidates(
                     qs = fut.result()
                 except HttpError as exc:
                     log.warning("kalshi: skipping series %s: %s", ticker, exc)
+                    qs = None
+                if qs is None:
                     qs = []
+                elif on_series is not None:
+                    on_series(ticker, qs)
                 for q in qs:
                     if q.id not in seen:
                         seen.add(q.id)

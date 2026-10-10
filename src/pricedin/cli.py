@@ -30,8 +30,10 @@ from pricedin.schema import (
     NewsContext,
     Question,
     Snapshot,
+    from_dict,
     parse_time,
     read_jsonl,
+    to_dict,
     to_iso,
     write_jsonl,
 )
@@ -99,6 +101,24 @@ def load_all_forecasts(study: Study) -> list[Forecast]:
 # --- commands ---------------------------------------------------------------------------
 
 
+def _scan_checkpoint(path: Path, resume: bool) -> dict[str, list[Question]]:
+    """Series already scanned, from ``path`` when resuming; otherwise start a fresh file."""
+    if not resume or not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+        return {}
+    done: dict[str, list[Question]] = {}
+    for row in read_jsonl(path):
+        done[row["series"]] = [from_dict(Question, q) for q in row["questions"]]
+    return done
+
+
+def _append_checkpoint(path: Path, series: str, qs: list[Question]) -> None:
+    row = {"series": series, "questions": [to_dict(q) for q in qs]}
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
 def cmd_collect(args: argparse.Namespace) -> int:
     study = load_study(args.study)
     client = _client()
@@ -132,6 +152,18 @@ def cmd_collect(args: argparse.Namespace) -> int:
             mod = _venue(v)
             t0 = time.monotonic()
             n0 = len(candidates)
+            extra: dict[str, Any] = {}
+            if v == "kalshi":  # the series scan takes hours: checkpoint each finished series
+                ckpt = CACHE_DIR / "scan" / f"{study.name}-kalshi.jsonl"
+                done = _scan_checkpoint(ckpt, args.resume)
+                for qs in done.values():
+                    candidates.extend(qs)
+                if done:
+                    _log(f"[kalshi] resuming: {len(done)} series already scanned")
+                extra = {
+                    "skip_series": done.keys(),
+                    "on_series": lambda t, qs, ckpt=ckpt: _append_checkpoint(ckpt, t, qs),
+                }
             for q in mod.list_candidates(
                 client,
                 created_after=study.created_after,
@@ -139,6 +171,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
                 min_open_days=study.min_open_days,
                 min_volume=study.min_volume.get(v, 0.0),
                 progress=lambda *msg, v=v: _log(f"[{v}] " + " ".join(map(str, msg))),
+                **extra,
             ):
                 candidates.append(q)
             _log(f"[{v}] {len(candidates) - n0} candidates in {time.monotonic() - t0:.0f}s")
@@ -546,6 +579,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("study")
     p.add_argument("--venue", action="append", choices=["kalshi", "polymarket"])
     p.add_argument("--reuse", action="store_true", help="re-sample from saved candidates")
+    p.add_argument(
+        "--resume", action="store_true", help="continue an interrupted Kalshi series scan"
+    )
     p.set_defaults(func=cmd_collect)
 
     p = sub.add_parser("snapshots", help="market state at each horizon before close")

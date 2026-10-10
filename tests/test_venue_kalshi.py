@@ -603,3 +603,30 @@ def test_live_snapshot_one_sided_falls_back_to_clamped_last():
     snap2 = K.live_snapshot(make_client(fake2), "T-2")
     assert (snap2.bid, snap2.ask, snap2.mid) == (0.12, 0.14, 0.13)
     assert all(path != "markets/T-2" for path, _ in fake2.calls)
+
+
+def test_list_candidates_skip_and_checkpoint_hooks():
+    base = {**FED, "event_ticker": "KXMENTION-E", "result": "no", "volume_fp": "500"}
+    q1 = {
+        **base,
+        "ticker": "Q1",
+        "created_time": "2026-07-02T00:00:00Z",
+        "open_time": "2026-07-02T00:00:00Z",
+        "close_time": "2026-08-01T00:00:00Z",
+        "expected_expiration_time": "2026-08-01T00:00:00Z",
+    }
+    fake = FakeKalshi(
+        {
+            "series": {"series": [{**FED_SERIES, "ticker": "KXMENTION"}]},
+            "markets": {"markets": [], "cursor": ""},
+            "historical/markets": {"markets": [q1], "cursor": ""},
+            "events": {"events": [], "cursor": ""},
+        }
+    )
+    kw = dict(created_after=T0, closed_before=T1, min_volume=0, series=["KXMENTION"])
+    seen = []
+    qs = list(
+        K.list_candidates(make_client(fake), on_series=lambda t, q: seen.append((t, len(q))), **kw)
+    )
+    assert [q.id for q in qs] == ["kalshi:Q1"] and seen == [("KXMENTION", 1)]
+    assert list(K.list_candidates(make_client(fake), skip_series={"KXMENTION"}, **kw)) == []
