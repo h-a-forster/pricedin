@@ -212,6 +212,8 @@ def cmd_forecast(args: argparse.Namespace) -> int:
 
     study = load_study(args.study)
     questions = _questions(study)
+    if args.venue:
+        questions = [q for q in questions if q.venue in args.venue]
     snapshots = [s for s in _snapshots(study) if s.horizon in (args.horizon or study.horizons)]
     news: list[NewsContext] | None = None
     if args.condition == "news":
@@ -554,6 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("-c", "--condition", default="base", choices=["base", "news"])
     p.add_argument("--horizon", action="append", help="restrict to these horizons")
+    p.add_argument("--venue", action="append", choices=["kalshi", "polymarket"])
     p.add_argument("--shard", help="i/n: run one of n deterministic shards")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--limit", type=int, help="run at most this many new forecasts")
