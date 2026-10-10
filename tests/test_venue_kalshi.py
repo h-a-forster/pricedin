@@ -155,7 +155,7 @@ def test_market_to_question_early_close_anchors_on_scheduled_end():
     assert q is not None
     assert q.id == "kalshi:KXTRUMPMEETING-27JAN01-RERD"
     assert q.event_id == "kalshi:KXTRUMPMEETING-27JAN01"
-    assert q.close_at == q.scheduled_close_at == "2027-01-01T15:00:00Z"
+    assert (q.close_at, q.scheduled_close_at) == ("2027-01-01T15:00:00Z", "")
     assert q.extra["actual_close"] == "2026-07-07T16:49:08Z"
     assert q.extra["early_close"] is True
     assert q.extra["close_gap_h"] > 4000
@@ -255,10 +255,16 @@ def test_buffer_uses_only_markets_closed_before_listing():
         _prior("2026-07-21T00:00:00Z", timedelta(0)),
     ]
     assert K.settlement_buffer(prior + after, listed) == (14 * 24, 3)
-    # median, and early closes (expected after close by a lot) don't dominate it
+    # low quantile: early closes (expected after close by a lot) don't inflate it
     mixed = prior[:2] + [_prior("2026-07-04T00:00:00Z", timedelta(days=100))]
     mixed += [_prior("2026-07-05T00:00:00Z", timedelta(days=14))]
     assert K.settlement_buffer(mixed, listed)[0] == 14 * 24
+    # even when most priors closed early, the buffer stays near the template's
+    many = [
+        _prior(f"2026-07-0{i}T00:00:00Z", timedelta(days=d))
+        for i, d in zip(range(1, 10), (14, 14, 30, 45, 60, 80, 100, 120, 150), strict=True)
+    ]
+    assert K.settlement_buffer(many, listed)[0] == 14 * 24
 
 
 def test_buffer_min_count_lookback_and_zero_fallback():
@@ -283,7 +289,7 @@ def test_market_to_question_applies_buffer():
         "expected_expiration_time": "2026-09-30T18:00:00Z",
     }
     q = K.market_to_question(m, FED_SERIES, buffer_h=14 * 24, n_prior=12)
-    assert q.close_at == q.scheduled_close_at == "2026-09-16T18:00:00Z"
+    assert (q.close_at, q.scheduled_close_at) == ("2026-09-16T18:00:00Z", "")
     assert q.extra["scheduled_end"] == "2026-09-30T18:00:00Z"
     assert (q.extra["buffer_h"], q.extra["n_prior"]) == (336, 12)
     assert q.extra["early_close"] is False

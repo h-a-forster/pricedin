@@ -19,11 +19,14 @@ of close, the 234 with non-round times are scheduled closes such as 03:59:59 or 
 But ``expected_expiration_time`` is usually the event time plus a settlement buffer that is a
 constant of the series template (mention markets +14 d, Billboard +9 d, CPI +1.5 h). Anchoring on
 it raw put as_of after the actual close for 61-73 % of eligible markets. So each question gets a
-per-series buffer estimated only from what was known when it was listed: the median of
-max(0, expected - close_time) over markets of the same series that had already closed in the
-180 days before its ``created_at`` (at least 3, else 0). Then
-``close_at`` = ``scheduled_close_at`` = ``expected_expiration_time`` - buffer, and horizons never
-depend on when (or whether) this market closed early. Markets without expected_expiration_time
+per-series buffer estimated only from what was known when it was listed: the 10th percentile
+of max(0, expected - close_time) over markets of the same series that had already closed in the
+180 days before its ``created_at`` (at least 3, else 0). A low quantile, not the median, because
+an early close (a "by <date>" market resolving YES) only ever adds to the gap; markets that ran
+to their deadline show the template buffer itself. Then
+``close_at`` = ``expected_expiration_time`` - buffer, and horizons never depend on when (or
+whether) this market closed early. ``scheduled_close_at`` is left empty: the estimate is not shown
+to the model, which reads the deadline from the rules text. Markets without expected_expiration_time
 are dropped. ``extra`` keeps ``scheduled_end`` (raw expected), ``buffer_h``, ``n_prior``,
 ``actual_close`` (``close_time``), ``early_close`` (actual close more than 1 h before ``close_at``)
 and ``close_gap_h`` (close_at - actual close). For a few ladder events or delayed games expected is
@@ -48,7 +51,6 @@ import bisect
 import logging
 import math
 import re
-import statistics
 import threading
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -70,6 +72,7 @@ PAGE = 1000
 MAX_RETRIES = 10  # 429s come in bursts when other scans share the IP
 BUFFER_LOOKBACK = timedelta(days=180)
 BUFFER_MIN_PRIOR = 3
+BUFFER_QUANTILE = 0.1
 
 # Series whose markets live at most a few days (sampled 2026-10-10: daily max 3.99 d open,
 # hourly 0.04 d, fifteen_min 0.01 d) can never pass a min_open_days >= 4 filter.
@@ -268,14 +271,23 @@ class BufferIndex:
         lookback: timedelta = BUFFER_LOOKBACK,
         min_count: int = BUFFER_MIN_PRIOR,
     ) -> tuple[float, int]:
-        """(buffer hours, n prior markets): median gap of markets closed in [t - lookback, t)."""
+        """(buffer hours, n priors): low-quantile gap of markets closed in [t - lookback, t)."""
         t = listed_at.timestamp()
         lo = bisect.bisect_left(self._closes, t - lookback.total_seconds())
         hi = bisect.bisect_left(self._closes, t)  # strictly before listing
         n = hi - lo
         if n < min_count:
             return 0.0, n
-        return statistics.median(self._gaps[lo:hi]) / 3600, n
+        return _quantile(sorted(self._gaps[lo:hi]), BUFFER_QUANTILE) / 3600, n
+
+
+def _quantile(xs: list[float], q: float) -> float:
+    """Linear-interpolation quantile of sorted ``xs`` (inclusive: q=0 is the min)."""
+    pos = q * (len(xs) - 1)
+    i = int(pos)
+    if i + 1 >= len(xs):
+        return xs[-1]
+    return xs[i] + (pos - i) * (xs[i + 1] - xs[i])
 
 
 def settlement_buffer(
@@ -347,7 +359,7 @@ def market_to_question(
         created_at=to_iso(created),
         open_at=to_iso(opened),
         close_at=to_iso(close_at),
-        scheduled_close_at=to_iso(close_at),
+        scheduled_close_at="",  # the buffer is an estimate; the rules state the deadline
         outcome=1 if result == "yes" else 0,
         volume=extra["volume"],
         url=f"https://kalshi.com/markets/{series_ticker.lower()}" if series_ticker else "",
