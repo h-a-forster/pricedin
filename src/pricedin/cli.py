@@ -537,7 +537,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="pricedin",
-        description="Does an LLM add information beyond the prediction-market price?",
+        description="What does an LLM add to a prediction-market price, before any research?",
     )
     ap.add_argument("--version", action="version", version=f"pricedin {__version__}")
     sub = ap.add_subparsers(dest="command", required=True)

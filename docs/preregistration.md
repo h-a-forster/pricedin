@@ -148,3 +148,5 @@ The primary family is Holm-adjusted across horizons × forecasters × conditions
   YES close makes depend on the outcome. A snapshot that falls after the actual close is
   dropped. The actual close sets the train/test split only. This replaces the "earlier of the
   actual close and the scheduled end" rule in the Data section.
+- **Forecasters.** Claude Fable 5.1 is dropped for cost (about $0.06 per call, $200 for the
+  study). Opus 5.5, Sonnet 5.5 and Haiku 5.5 remain.

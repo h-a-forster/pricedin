@@ -1,7 +1,7 @@
 # pricedin study v1: retrospective, leakage-safe.
 #
 # Every question was listed after the training cutoff of every model below (June 2026 for all
-# four, per Anthropic's model overview, read 2026-10-10), so no model can have seen its outcome.
+# three, per Anthropic's model overview, read 2026-10-10), so no model can have seen its outcome.
 # This file was committed before any forecast was scored; see docs/preregistration.md.
 
 [study]
@@ -29,8 +29,7 @@ forecasters = [
   "claude-cli:claude-opus-5-5@low",
   "claude-cli:claude-sonnet-5-5@low",
   "claude-cli:claude-haiku-5-5@low",
-  "claude-cli:claude-fable-5-1@low",
-]
+]  # claude-fable-5-1 was planned and dropped before scoring, for cost
 
 [analysis]
 eps = 0.01            # probabilities clipped to [eps, 1 - eps] before any logit
