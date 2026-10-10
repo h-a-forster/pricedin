@@ -122,7 +122,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
                 closed_before=study.closed_before,
                 min_open_days=study.min_open_days,
                 min_volume=study.min_volume.get(v, 0.0),
-                progress=lambda msg, v=v: _log(f"[{v}] {msg}"),
+                progress=lambda *msg, v=v: _log(f"[{v}] " + " ".join(map(str, msg))),
             ):
                 candidates.append(q)
             _log(f"[{v}] {len(candidates) - n0} candidates in {time.monotonic() - t0:.0f}s")
