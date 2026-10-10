@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "If you use pricedin, please cite it as below."
+title: pricedin
+abstract: >-
+  Tests whether an LLM adds information beyond the prediction-market price, using
+  leakage-safe forecasts on resolved Kalshi and Polymarket questions.
+type: software
+authors:
+  - alias: h-a-forster
+repository-code: "https://github.com/h-a-forster/pricedin"
+license: MIT
+version: 0.1.0
+date-released: 2026-10-10

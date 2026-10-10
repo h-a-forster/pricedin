@@ -79,8 +79,11 @@ class Question:
     category: str  # one of CATEGORIES
     created_at: str  # when the question was listed (ISO, UTC)
     open_at: str  # when trading opened
-    close_at: str  # when trading actually stopped (may be earlier than scheduled)
-    scheduled_close_at: str  # the close time listed while the market was open
+    # Horizons are measured back from close_at: the scheduled end known at listing. It is
+    # never the actual close, because an early close (a "by <date>" market resolving YES)
+    # depends on the outcome. The actual close is kept in extra["actual_close"].
+    close_at: str
+    scheduled_close_at: str  # the deadline shown to the model ("" if none was known)
     outcome: int  # 1 = YES, 0 = NO
     volume: float  # venue units: contracts on Kalshi, USDC on Polymarket
     url: str = ""
