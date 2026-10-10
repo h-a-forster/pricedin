@@ -116,3 +116,11 @@ def test_format_duration() -> None:
 def test_bad_condition() -> None:
     with pytest.raises(ValueError):
         build_prompt(make_question(), AS_OF, "market")
+
+
+def test_no_scheduled_close_never_leaks_actual_close() -> None:
+    q = make_question(scheduled_close_at="")
+    system, user, _ = build_prompt(q, AS_OF, "base")
+    assert "20 August" not in system + user
+    assert "Scheduled close" not in user
+    assert "deadline is set out in the resolution criteria" in system

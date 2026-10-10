@@ -53,9 +53,8 @@ How to work:
 1. Read the resolution criteria closely. The question resolves exactly as they are worded, \
 including edge cases, deadlines and the source used to settle it.
 2. Start from a base rate: how often do comparable events happen in a comparable time window?
-3. Account for the time remaining. The question is scheduled to close on {close}, {remaining} \
-after the current date. Ask what would have to happen within that window and how likely it is; \
-over short windows the status quo usually persists.
+3. Account for the time remaining{close_clause}. Ask what would have to happen before the \
+deadline and how likely it is; over short windows the status quo usually persists.
 4. Adjust for the specific evidence, avoiding both overconfidence and needless hedging toward 50%.
 
 Keep your reasoning brief: at most about 150 words. Always give a probability, even when you are \
@@ -70,8 +69,7 @@ USER_TEMPLATE = """\
 Question: {title}
 Venue: {venue}
 Current date: {now}
-Scheduled close: {close}
-
+{close_line}
 Resolution criteria:
 {rules}
 {news}
@@ -156,9 +154,12 @@ def format_headlines(items: list[NewsItem]) -> str:
     return "\n".join(lines)
 
 
-def close_time(question: Question) -> datetime:
-    """The scheduled close; the actual ``close_at`` may reveal an early resolution."""
-    return parse_time(question.scheduled_close_at or question.close_at)
+def close_time(question: Question) -> datetime | None:
+    """The scheduled close known at listing, or None.
+
+    Never falls back to ``close_at``: an early actual close would reveal the outcome.
+    """
+    return parse_time(question.scheduled_close_at) if question.scheduled_close_at else None
 
 
 def build_prompt(
@@ -176,10 +177,18 @@ def build_prompt(
         raise ValueError(f"condition must be one of {CONDITIONS}, got {condition!r}")
     now = parse_time(as_of)
     close = close_time(question)
+    if close is not None:
+        close_clause = (
+            f": the question is scheduled to close on {format_time(close)}, "
+            f"{format_duration(close - now)} after the current date"
+        )
+        close_line = f"Scheduled close: {format_time(close)}\n"
+    else:
+        close_clause = ": the deadline is set out in the resolution criteria"
+        close_line = ""
     system = SYSTEM_TEMPLATE.format(
         now=format_time(now),
-        close=format_time(close),
-        remaining=format_duration(close - now),
+        close_clause=close_clause,
         news_clause=_NEWS_CLAUSE if condition == "news" else "",
     )
     news_block = ""
@@ -189,7 +198,7 @@ def build_prompt(
         title=_one_line(question.title),
         venue=_VENUES.get(question.venue, question.venue),
         now=format_time(now),
-        close=format_time(close),
+        close_line=close_line,
         rules=truncate_rules(question.rules),
         news=news_block,
     )

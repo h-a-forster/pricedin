@@ -148,7 +148,7 @@ def run_forecasts(
         if shard is not None and shard_of(s.question_id, shard[1]) != shard[0]:
             continue
         q = qmap[s.question_id]
-        if parse_time(s.as_of) >= close_time(q):
+        if parse_time(s.as_of) >= (close_time(q) or q.close):
             n_invalid += 1
             continue
         n_eligible += 1

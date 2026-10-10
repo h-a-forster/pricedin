@@ -1,0 +1,49 @@
+# pricedin study v1: retrospective, leakage-safe.
+#
+# Every question was listed after the training cutoff of every model below (June 2026 for all
+# four, per Anthropic's model overview, read 2026-10-10), so no model can have seen its outcome.
+# This file was committed before any forecast was scored; see docs/preregistration.md.
+
+[study]
+name = "v1"
+created_after = "2026-07-01T00:00:00Z"  # first day after the June 2026 training cutoff
+closed_before = "2026-10-09T00:00:00Z"  # data freeze
+min_open_days = 8                      # the 7-day snapshot needs a market that already traded
+horizons = ["7d", "1d", "1h"]
+data_dir = "../data/v1"
+results_dir = "../results/v1"
+
+[universe]
+venues = ["kalshi", "polymarket"]
+per_event = 1      # at most one question per event
+per_cell = 100     # at most 100 questions per (venue, category)
+seed = "pricedin-v1"
+
+[universe.min_volume]
+kalshi = 1000      # contracts traded over the market's life
+polymarket = 10000 # USDC traded over the market's life
+
+[forecast]
+conditions = ["base", "news"]
+forecasters = [
+  "claude-cli:claude-opus-5-5@low",
+  "claude-cli:claude-sonnet-5-5@low",
+  "claude-cli:claude-haiku-5-5@low",
+  "claude-cli:claude-fable-5-1@low",
+]
+
+[analysis]
+eps = 0.01            # probabilities clipped to [eps, 1 - eps] before any logit
+split = 0.5           # train on questions closing before the median close, test on the rest
+bootstrap = 2000      # event-clustered bootstrap resamples
+seed = 0
+alpha = 0.05
+# Primary family (Holm-adjusted across horizons x forecasters x conditions):
+#   H1  forecast encompassing: the LLM's coefficient in logit(y) ~ logit(market) + logit(llm)
+#       is zero (cluster-robust Wald test, full sample).
+#   H2  out-of-sample: Brier(market_recal) - Brier(pool) <= 0 on the test period.
+contested = [0.05, 0.95]  # secondary: rows whose market mid lies in this range at the snapshot
+
+[analysis.pnl]
+threshold = 0.02      # minimum expected edge per contract after fees
+contracts = 100       # order size per signal
