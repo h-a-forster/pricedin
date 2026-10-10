@@ -55,7 +55,9 @@ def test_rank_top_k_positive_and_chronological():
     got = rank_news("Will the Federal Reserve cut rates in September?", "", items, k=2)
     assert [g.seen_at for g in got] == sorted(g.seen_at for g in got)
     assert all("Federal Reserve" in g.title for g in got)
-    assert len(rank("Federal Reserve rates", items, k=10, min_coverage=0.0)) == 3  # 0 dropped
+    # Without the coverage rule, "Fed holds rates" still fails the subject rule (no
+    # "Federal"/"Reserve"); only "Football results" scored 0 before either rule.
+    assert len(rank("Federal Reserve rates", items, k=10, min_coverage=0.0)) == 2
     assert len(rank_news("Federal Reserve rates", "", items, k=10)) == 2  # "Fed ... rates" weak
     assert rank_news("Federal Reserve", "", items, k=0) == []
 
@@ -95,5 +97,20 @@ def test_dates_do_not_match_and_weak_matches_are_dropped():
     assert [g.title for g in got] == [
         "[2026-07-29] Federal Reserve holds interest rates at its meeting"
     ]
-    # With the filter off, the weak "Federal" match comes back.
-    assert len(rank("Will the Federal Reserve cut interest rates?", items, min_coverage=0.0)) == 2
+    # With the coverage filter off, the subject rule still drops the weak "Federal" match:
+    # "Reserve" is the rarer, heavier entity term.
+    assert len(rank("Will the Federal Reserve cut interest rates?", items, min_coverage=0.0)) == 1
+
+
+def test_items_must_name_the_subject() -> None:
+    from pricedin.news.relevance import entity_terms, rank
+
+    assert entity_terms("Will Venezuela win on 2026-09-28?") == {"venezuela"}
+    items = [
+        NewsItem(title="In tennis, Zverev wins the US Open final", seen_at="2026-09-13T00:00:00Z"),
+        NewsItem(
+            title="Venezuela beats Peru in a World Cup qualifier", seen_at="2026-09-12T00:00:00Z"
+        ),
+    ]
+    out = rank("Will Venezuela win on 2026-09-28?", items)
+    assert [it.title for it in out] == [items[1].title]

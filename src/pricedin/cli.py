@@ -216,6 +216,10 @@ def cmd_forecast(args: argparse.Namespace) -> int:
         if not study.news_path.exists():
             raise SystemExit(f"{study.news_path} not found; run `pricedin news` first")
         news = list(read_jsonl(study.news_path, NewsContext))
+        # The news condition only runs where retrieval found something; elsewhere its prompt
+        # would differ from the base prompt by a "no headlines found" note alone.
+        with_items = {(c.question_id, c.horizon) for c in news if c.items}
+        snapshots = [s for s in snapshots if (s.question_id, s.horizon) in with_items]
     shard = None
     if args.shard:
         i, n = (int(x) for x in args.shard.split("/"))

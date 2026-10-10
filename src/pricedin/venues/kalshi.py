@@ -16,15 +16,19 @@ other 7 are date ladders where each market has its own deadline. No sampled mark
 expected_expiration_time that tracked an early close (of 7,790 markets with expected within 10 min
 of close, the 234 with non-round times are scheduled closes such as 03:59:59 or game times).
 
-So ``close_at`` = ``scheduled_close_at`` = ``expected_expiration_time``, a listing-time deadline,
-and horizons never depend on when (or whether) the market closed early. Markets without it are
-dropped. Caveats: it is often the event time plus a settlement buffer (mention markets: +14 d), so
-for those as_of often falls after the actual close and ``snapshot`` returns None; for a few ladder
-events or delayed games it is earlier than the market's real deadline. ``latest_expiration_time``
-is a far fallback (deadline + 7 d to + 2 y) and ``expiration_time`` equals it.
-``extra["actual_close"]`` keeps ``close_time``; ``extra["early_close"]`` flags markets that stopped
-trading more than an hour before the scheduled end (settlement buffers make some scheduled closes
-look early too, so ``extra["close_gap_h"]`` keeps the size of the gap).
+But ``expected_expiration_time`` is usually the event time plus a settlement buffer that is a
+constant of the series template (mention markets +14 d, Billboard +9 d, CPI +1.5 h). Anchoring on
+it raw put as_of after the actual close for 61-73 % of eligible markets. So each question gets a
+per-series buffer estimated only from what was known when it was listed: the median of
+max(0, expected - close_time) over markets of the same series that had already closed in the
+180 days before its ``created_at`` (at least 3, else 0). Then
+``close_at`` = ``scheduled_close_at`` = ``expected_expiration_time`` - buffer, and horizons never
+depend on when (or whether) this market closed early. Markets without expected_expiration_time
+are dropped. ``extra`` keeps ``scheduled_end`` (raw expected), ``buffer_h``, ``n_prior``,
+``actual_close`` (``close_time``), ``early_close`` (actual close more than 1 h before ``close_at``)
+and ``close_gap_h`` (close_at - actual close). For a few ladder events or delayed games expected is
+earlier than the market's real deadline. ``latest_expiration_time`` is a far fallback
+(deadline + 7 d to + 2 y) and ``expiration_time`` equals it.
 
 Snapshots are None when as_of >= actual close - 60 s (the market had stopped trading). Otherwise
 they read 1-minute candles over [as_of - max_stale, as_of]. A candle ending at T covers
@@ -34,14 +38,17 @@ Candles are emitted when the book or trades change, quiet minutes are omitted. W
 start that carries older state, and the historical tier ignores the flag, so using it would make
 the two tiers (early vs late study periods) select differently. A quote counts only when
 0 < bid <= ask < 1: bid 0 means no bids and ask 1 means no asks, and averaging an empty side would
-manufacture 0.5. Without a two-sided quote the mid falls back to the last trade price, else None.
+manufacture 0.5. Without a two-sided quote the mid is the last trade price clamped into the one
+side that exists (a lone bid of 0.99 beats a stale 0.87 trade), else None.
 """
 
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 import re
+import statistics
 import threading
 import weakref
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -60,6 +67,9 @@ HOST = "api.elections.kalshi.com"
 HOST_INTERVAL = 0.1  # ~10 req/s; the basic tier allows ~20 and 429s are retried by HttpClient
 CANDLE_SOURCE = "kalshi-candles-1m"
 PAGE = 1000
+MAX_RETRIES = 10  # 429s come in bursts when other scans share the IP
+BUFFER_LOOKBACK = timedelta(days=180)
+BUFFER_MIN_PRIOR = 3
 
 # Series whose markets live at most a few days (sampled 2026-10-10: daily max 3.99 d open,
 # hourly 0.04 d, fifteen_min 0.01 d) can never pass a min_open_days >= 4 filter.
@@ -103,6 +113,18 @@ def configure(client: HttpClient) -> HttpClient:
     """Give ``client`` the Kalshi host spacing unless the caller already chose one."""
     client.host_intervals.setdefault(HOST, HOST_INTERVAL)
     return client
+
+
+def make_client(**kwargs: Any) -> HttpClient:
+    """An HttpClient tuned for Kalshi (host spacing, patient retries); kwargs override.
+
+    ``max_retries`` is per client in HttpClient, so a client shared with other hosts keeps its
+    own setting; ``configure`` only adds the host spacing.
+    """
+    kwargs.setdefault("max_retries", MAX_RETRIES)
+    kwargs.setdefault("backoff_max", 60.0)
+    kwargs["host_intervals"] = {HOST: HOST_INTERVAL, **(kwargs.get("host_intervals") or {})}
+    return HttpClient(**kwargs)
 
 
 def _get(client: HttpClient, path: str, params: Mapping[str, Any] | None = None, *, cache=True):
@@ -226,12 +248,60 @@ def scheduled_end(market: Mapping[str, Any]) -> datetime | None:
     return _time(market.get("expected_expiration_time"))
 
 
+class BufferIndex:
+    """Per-series settlement buffers, using only markets closed before a question was listed."""
+
+    def __init__(self, markets: Iterable[Mapping[str, Any]]):
+        rows = []
+        for m in markets:
+            close, expected = _time(m.get("close_time")), scheduled_end(m)
+            if close is not None and expected is not None:
+                rows.append((close.timestamp(), max(0.0, (expected - close).total_seconds())))
+        rows.sort()
+        self._closes = [r[0] for r in rows]
+        self._gaps = [r[1] for r in rows]
+
+    def buffer(
+        self,
+        listed_at: datetime,
+        *,
+        lookback: timedelta = BUFFER_LOOKBACK,
+        min_count: int = BUFFER_MIN_PRIOR,
+    ) -> tuple[float, int]:
+        """(buffer hours, n prior markets): median gap of markets closed in [t - lookback, t)."""
+        t = listed_at.timestamp()
+        lo = bisect.bisect_left(self._closes, t - lookback.total_seconds())
+        hi = bisect.bisect_left(self._closes, t)  # strictly before listing
+        n = hi - lo
+        if n < min_count:
+            return 0.0, n
+        return statistics.median(self._gaps[lo:hi]) / 3600, n
+
+
+def settlement_buffer(
+    prior: Iterable[Mapping[str, Any]],
+    listed_at: datetime,
+    *,
+    lookback: timedelta = BUFFER_LOOKBACK,
+    min_count: int = BUFFER_MIN_PRIOR,
+) -> tuple[float, int]:
+    """One-off form of ``BufferIndex(prior).buffer(listed_at)``."""
+    return BufferIndex(prior).buffer(listed_at, lookback=lookback, min_count=min_count)
+
+
 def market_to_question(
     market: Mapping[str, Any],
     series: Mapping[str, Any] | None = None,
     event: Mapping[str, Any] | None = None,
+    *,
+    buffer_h: float = 0.0,
+    n_prior: int = 0,
 ) -> Question | None:
-    """Map one raw market (live or historical object) to a Question; None if not a clean binary."""
+    """Map one raw market (live or historical object) to a Question; None if not a clean binary.
+
+    ``buffer_h`` (from ``BufferIndex``) is subtracted from expected_expiration_time to give
+    close_at; it must come from markets that closed before this one was listed.
+    """
     result = market.get("result")
     if market.get("market_type") != "binary" or result not in ("yes", "no"):
         return None
@@ -243,11 +313,14 @@ def market_to_question(
         return None
     s = series or {}
     series_ticker = s.get("ticker") or (event or {}).get("series_ticker") or ""
-    gap_h = (scheduled - actual).total_seconds() / 3600
+    close_at = scheduled - timedelta(hours=buffer_h)
+    gap_h = (close_at - actual).total_seconds() / 3600
     extra: dict[str, Any] = {
         "series": series_ticker,
         "actual_close": to_iso(actual),
         "scheduled_end": to_iso(scheduled),
+        "buffer_h": round(buffer_h, 4),
+        "n_prior": n_prior,
         "latest_expiration": _iso_or_blank(market.get("latest_expiration_time")),
         "settled_at": _iso_or_blank(market.get("settlement_ts")),
         "early_close": gap_h > 1.0,
@@ -273,8 +346,8 @@ def market_to_question(
         category=map_category(venue_category, s.get("tags") or ()),
         created_at=to_iso(created),
         open_at=to_iso(opened),
-        close_at=to_iso(scheduled),
-        scheduled_close_at=to_iso(scheduled),
+        close_at=to_iso(close_at),
+        scheduled_close_at=to_iso(close_at),
         outcome=1 if result == "yes" else 0,
         volume=extra["volume"],
         url=f"https://kalshi.com/markets/{series_ticker.lower()}" if series_ticker else "",
@@ -319,7 +392,10 @@ def _pages(client: HttpClient, path: str, params: dict[str, Any], key: str) -> I
 def series_markets(
     client: HttpClient, series_ticker: str, created_after: datetime, cutoff: datetime
 ) -> list[dict[str, Any]]:
-    """Settled markets of one series that closed at or after ``created_after``, both tiers."""
+    """Settled markets of one series that closed at or after ``created_after``, both tiers.
+
+    Live tier filters on settlement time, so a few markets closed slightly earlier come along.
+    """
     out: dict[str, dict[str, Any]] = {}
     live = {
         "status": "settled",
@@ -387,8 +463,10 @@ def list_candidates(
     otherwise every series from ``/series`` minus short-lived frequencies and combos.
     ``progress(done_series, total_series, n_yielded)`` is called after each series. Series that
     fail after HttpClient's retries are logged and skipped. Listing responses are never cached
-    (they change as markets settle and move to the historical tier). A full scan is ~2 requests
-    per series (~29k), so roughly an hour at 10 req/s.
+    (they change as markets settle and move to the historical tier). Series with markets listed
+    since ``created_after`` are fetched again back to ``BUFFER_LOOKBACK`` earlier for the
+    settlement buffers. A full scan is ~2 requests per series plus ~3 per candidate series
+    (~32k), so roughly an hour at 10 req/s. Use ``make_client`` for patient 429 retries.
     """
     configure(client)
     all_series = fetch_series(client)
@@ -404,7 +482,19 @@ def list_candidates(
     def work(ticker: str) -> list[Question]:
         s = all_series.get(ticker) or {"ticker": ticker}
         markets = series_markets(client, ticker, created_after, cutoff)
-        qs = [q for m in markets if (q := market_to_question(m, s)) and is_eligible(q, **kw)]
+        listed = [m for m in markets if (t := _time(m.get("created_time"))) and t >= created_after]
+        if not listed:
+            return []
+        # Buffers need the series' markets closed up to BUFFER_LOOKBACK before created_after.
+        # They only set each question's anchor; they are never questions themselves.
+        markets = series_markets(client, ticker, created_after - BUFFER_LOOKBACK, cutoff)
+        index = BufferIndex(markets)
+        qs = []
+        for m in listed:
+            buf, n_prior = index.buffer(_time(m["created_time"]))
+            q = market_to_question(m, s, buffer_h=buf, n_prior=n_prior)
+            if q is not None and is_eligible(q, **kw):
+                qs.append(q)
         if qs:
             events = series_events(client, ticker, created_after)
             for q in qs:
@@ -497,15 +587,26 @@ def select_observation(
     return best
 
 
+def book_mid(bid: float | None, ask: float | None, last: float | None) -> float | None:
+    """Mid of a two-sided book, else the last trade clamped into the side that exists, else None.
+
+    ``bid``/``ask`` must already be None for empty sides.
+    """
+    if bid is not None and ask is not None and bid <= ask:
+        return round((bid + ask) / 2, 6)
+    if last is None or not 0.0 < last < 1.0:
+        return None
+    lo = bid if bid is not None else 0.0
+    hi = ask if ask is not None else 1.0
+    return min(max(last, lo), hi)
+
+
 def quote(obs: Observation) -> tuple[float, float | None, float | None] | None:
     """(mid, bid, ask) from an observation; empty book sides become None. None if no price."""
     bid = obs.bid if obs.bid is not None and 0.0 < obs.bid < 1.0 else None
     ask = obs.ask if obs.ask is not None and 0.0 < obs.ask < 1.0 else None
-    if bid is not None and ask is not None and bid <= ask:
-        return round((bid + ask) / 2, 6), bid, ask
-    if obs.last is not None and 0.0 < obs.last < 1.0:
-        return obs.last, bid, ask
-    return None
+    mid = book_mid(bid, ask, obs.last)
+    return None if mid is None else (mid, bid, ask)
 
 
 def _ticker(q: Question | str) -> str:
@@ -603,7 +704,7 @@ def live_snapshot(
 ) -> Snapshot | None:
     """Current top-of-book for the prospective collector (never cached).
 
-    The mid falls back to the market's last trade price when the book is one-sided, and the
+    A one-sided book falls back to the last trade clamped into the side that exists, and the
     result is None when there is neither a two-sided book nor a trade.
     """
     configure(client)
@@ -615,12 +716,10 @@ def live_snapshot(
     bid = book["bids"][0][0] if book["bids"] else None
     ask = book["asks"][0][0] if book["asks"] else None
     last = None
-    if bid is not None and ask is not None and bid <= ask:
-        mid: float | None = round((bid + ask) / 2, 6)
-    else:
+    if bid is None or ask is None or bid > ask:
         market = _get(client, f"markets/{ticker}", cache=False).get("market") or {}
         last = _num(market.get("last_price_dollars"))
-        mid = last if last is not None and 0.0 < last < 1.0 else None
+    mid = book_mid(bid, ask, last)
     if mid is None:
         return None
     return Snapshot(

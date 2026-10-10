@@ -24,6 +24,9 @@ PHRASE_BONUS = 1.5  # per matched proper-noun phrase, scaled by the mean term ID
 # An item must match this share of the title terms' IDF mass (or one of its proper-noun
 # phrases); keeps "Russia's Federal Security Service" out of a Federal Reserve question.
 MIN_COVERAGE = 0.25
+# ...and half the IDF mass of the title's capitalised words ("Braun" in "Will John Braun earn
+# the most votes in the WA-03 Primary?"), so generic capitalised words cannot carry a match.
+MIN_ENTITY_COVERAGE = 0.5
 
 STOPWORDS = frozenset(
     """
@@ -43,6 +46,16 @@ STOPWORDS = frozenset(
 
 _WORD = re.compile(r"[a-z0-9]+(?:['’][a-z]+)?")
 _DATEISH = re.compile(r"\d{1,2}|(?:19|20)\d\d")  # days, months, years: in every dated item
+_CAPWORD = re.compile(r"\b[A-Z][\w'’.-]+")
+# Capitalised words too generic to identify a topic on their own.
+_GENERIC = frozenset(
+    """
+    exact score fc cf sc united city club team game match final party yes no top best new
+    jan feb mar apr may jun jul aug sep oct nov dec january february march april june july
+    august september october november december monday tuesday wednesday thursday friday
+    saturday sunday
+    """.split()  # noqa: SIM905
+)
 _PROPER = re.compile(r"\b[A-Z][\w'’.-]*(?:\s+(?:of|the|de|and|for|on|in)?\s*[A-Z][\w'.-]*)+")
 
 
@@ -84,6 +97,17 @@ def proper_phrases(text: str) -> list[tuple[str, ...]]:
     return list(seen)
 
 
+def entity_terms(title: str) -> set[str]:
+    """Tokens of capitalised words in the title, minus stopwords and generic words:
+    "Will Venezuela win?" -> {"venezuela"}. Used to require that an item names the subject."""
+    out: set[str] = set()
+    for m in _CAPWORD.finditer(title):
+        for tok in tokenize(m.group(0)):
+            if tok not in _GENERIC and not tok.isdigit():
+                out.add(tok)
+    return out
+
+
 def question_query(title: str, rules: str = "") -> tuple[Counter[str], list[tuple[str, ...]]]:
     """Weighted query terms and proper-noun phrases from a question's title and rules.
     Title terms carry weight ``>= TITLE_WEIGHT``."""
@@ -93,7 +117,9 @@ def question_query(title: str, rules: str = "") -> tuple[Counter[str], list[tupl
         weights[tok] += TITLE_WEIGHT
     for tok in set(tokenize(rules)):
         weights[tok] += 1.0
-    return weights, proper_phrases(f"{title}\n{rules}")
+    # Phrases come from the title only: a phrase match bypasses the coverage rules, and the
+    # rules text names incidental places and sources ("Los Angeles", "Parcl Labs").
+    return weights, proper_phrases(title)
 
 
 def _has_phrase(doc: list[str], phrase: tuple[str, ...]) -> bool:
@@ -108,14 +134,17 @@ def bm25_scores(
     phrases: Sequence[tuple[str, ...]] = (),
     focus: Iterable[str] = (),
     min_coverage: float = 0.0,
+    entities: Iterable[str] = (),
     k1: float = 1.2,
     b: float = 0.75,
 ) -> list[float]:
     """BM25 score of each document for a weighted bag of query terms.
 
     Documents matching less than ``min_coverage`` of the IDF mass of the ``focus`` terms, and
-    none of the ``phrases``, score 0.
+    none of the ``phrases``, score 0. When ``entities`` is given, a document must also match
+    ``MIN_ENTITY_COVERAGE`` of their IDF mass (or a phrase), so rare names count most.
     """
+    entities = set(entities)
     toks = [tokenize(d) for d in docs]
     n = len(toks)
     if n == 0:
@@ -128,6 +157,8 @@ def bm25_scores(
     full = [tokenize(d, keep_stopwords=True) for d in docs] if phrases else []
     focus_idf = {q: math.log(1.0 + (n - df[q] + 0.5) / (df[q] + 0.5)) for q in set(focus)}
     focus_mass = sum(focus_idf.values())
+    entity_idf = {q: math.log(1.0 + (n - df[q] + 0.5) / (df[q] + 0.5)) for q in entities}
+    entity_mass = sum(entity_idf.values())
     scores = []
     for i, t in enumerate(toks):
         tf = Counter(t)
@@ -144,6 +175,10 @@ def bm25_scores(
             if not matched and focus_mass > 0:
                 cov = sum(v for q, v in focus_idf.items() if q in tf) / focus_mass
                 if cov < min_coverage:
+                    s = 0.0
+            if not matched and entity_mass > 0:
+                ecov = sum(v for q, v in entity_idf.items() if q in tf) / entity_mass
+                if ecov < MIN_ENTITY_COVERAGE:
                     s = 0.0
         scores.append(s)
     return scores
@@ -176,6 +211,7 @@ def rank(
         phrases=phrases,
         focus=focus,
         min_coverage=min_coverage,
+        entities=entity_terms(query_text),
     )
     order = sorted(
         (i for i in range(len(items)) if scores[i] > 0),

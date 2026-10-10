@@ -31,7 +31,9 @@ add information, and an equally accurate LLM can add none.
   - Polymarket: the CLOB price history.
 - **News.** Items from Wikipedia's daily "Current events" pages for the 14 days before the
   snapshot, read at the last revision at or before the snapshot time. They are ranked for
-  relevance by BM25, top 25.
+  relevance by BM25, top 25. An item must also name the question's subject: half the IDF
+  weight of the title's capitalised words, or a multi-word name from the title. These pages
+  list major news only, so many rows get no items.
 
 ## Forecasts
 
@@ -43,7 +45,8 @@ add information, and an equally accurate LLM can add none.
   anything dated after the snapshot.
 - **Conditions.**
   - `base`: the question and its rules only.
-  - `news`: also the dated headlines.
+  - `news`: also the dated headlines. Run only on rows where retrieval found at least one
+    item, and compared with `base` on those same rows.
 
 Coverage depends on budget. Opus 5.5 runs both conditions at every horizon. The other models
 run a subset, reported as such.
