@@ -47,7 +47,9 @@ def _log(msg: str) -> None:
 def _client(cache: bool = True):
     from pricedin.http import HttpClient
 
-    return HttpClient(cache_dir=CACHE_DIR / "http" if cache else None)
+    return HttpClient(
+        cache_dir=CACHE_DIR / "http" if cache else None, max_retries=10, backoff_max=60.0
+    )
 
 
 def _venue(name: str):
