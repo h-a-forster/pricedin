@@ -159,13 +159,14 @@ def test_limit_and_snapshot_filters(tmp_path: Path) -> None:
     out = tmp_path / "f.jsonl"
     s = run_forecasts(qs, snaps, provider_spec=SPEC, out_path=out, cache_dir=None, limit=4)
     assert s["done"] == 4 and s["invalid_as_of"] == 1 and s["eligible"] == 9
-    # Deterministic order: question id, then horizon 7d, 1d, 1h.
-    assert [(r.question_id, r.horizon) for r in rows(out)] == [
+    # The limit takes tasks in a deterministic order (question id, then 7d, 1d, 1h); workers
+    # may finish, and so write, in any order.
+    assert {(r.question_id, r.horizon) for r in rows(out)} == {
         ("kalshi:Q0", "7d"),
         ("kalshi:Q0", "1d"),
         ("kalshi:Q0", "1h"),
         ("kalshi:Q1", "7d"),
-    ]
+    }
 
 
 def test_mixed_forecaster_file_rejected(tmp_path: Path) -> None:
