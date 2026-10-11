@@ -150,3 +150,9 @@ The primary family is Holm-adjusted across horizons × forecasters × conditions
   actual close and the scheduled end" rule in the Data section.
 - **Forecasters.** Claude Fable 5.1 is dropped for cost (about $0.06 per call, $200 for the
   study). Opus 5.5, Sonnet 5.5 and Haiku 5.5 remain.
+- **Kalshi dropped.** No listing-time Kalshi field gives a reliable deadline. Expected
+  expiration adds a settlement buffer that varies by series, and many new series have no
+  history to estimate it from. For about half the sampled Kalshi questions the estimated
+  deadline fell after trading stopped, which would have thinned and mislabelled the
+  horizons. Study v1 is therefore Polymarket only. Kalshi support stays in the code. No
+  Kalshi forecast was made or scored.

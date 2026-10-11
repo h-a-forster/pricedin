@@ -1,8 +1,8 @@
 {
-  "candidates": 13154,
-  "events": 6008,
-  "after_event_cap": 6008,
-  "sampled": 714,
+  "candidates": 13125,
+  "events": 6006,
+  "after_event_cap": 6006,
+  "sampled": 712,
   "cells": [
     {
       "venue": "polymarket",
@@ -19,8 +19,8 @@
     {
       "venue": "polymarket",
       "category": "economics",
-      "available": 63,
-      "sampled": 63
+      "available": 62,
+      "sampled": 62
     },
     {
       "venue": "polymarket",
@@ -55,8 +55,8 @@
     {
       "venue": "polymarket",
       "category": "weather",
-      "available": 32,
-      "sampled": 32
+      "available": 31,
+      "sampled": 31
     },
     {
       "venue": "polymarket",

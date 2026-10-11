@@ -14,7 +14,7 @@ data_dir = "../data/v1"
 results_dir = "../results/v1"
 
 [universe]
-venues = ["kalshi", "polymarket"]
+venues = ["polymarket"]  # Kalshi dropped before scoring: see docs/preregistration.md
 per_event = 1      # at most one question per event
 per_cell = 100     # at most 100 questions per (venue, category)
 seed = "pricedin-v1"
