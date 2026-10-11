@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-11
 
 ### Added
 
@@ -20,6 +20,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - P&L of trading on the model's disagreement, after venue fees.
 - Power analysis for planning sample size.
 - Report and figures.
-- Study v1 (`studies/v1.toml`).
+- Study v1 (`studies/v1.toml`): 712 Polymarket questions, Claude Opus, Sonnet and Haiku 5.5,
+  frozen data and results. No measurable gain over the market price.
 - CLI: `collect`, `snapshots`, `news`, `forecast`, `merge`, `evaluate`, `report`, `power`,
-  `live`, `status`.
+  `live`, `status`. `collect --resume` continues an interrupted Kalshi scan.

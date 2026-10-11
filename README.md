@@ -5,9 +5,44 @@
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 
 What does an LLM add to a prediction-market price from its own knowledge, before it does any
-research? A leakage-safe baseline on Kalshi and Polymarket.
+research? A leakage-safe baseline on Polymarket.
 
-<!-- RESULTS -->
+## Result
+
+**No. Without research, Claude adds nothing measurable to the Polymarket price.**
+
+712 Polymarket questions, 1,743 snapshots. Three Claude models forecast each one without
+seeing the price. Fitted on questions that resolved before September 2026, scored on later
+ones (828 test rows per model):
+
+| | 7 days before | 1 day before | 1 hour before |
+| --- | ---: | ---: | ---: |
+| Market price | 0.141 | 0.088 | 0.070 |
+| Market, recalibrated | 0.142 | 0.085 | 0.067 |
+| Claude Opus 5.5 alone | 0.223 | 0.209 | 0.204 |
+| Market + Opus (pool) | 0.140 | 0.085 | 0.067 |
+
+Brier score on the test period, lower is better. 0.25 is a coin flip.
+
+![Brier by horizon](results/v1/figures/brier_by_horizon.png)
+
+- **The model alone is far worse than the market.** Its Brier is 0.20–0.23 at every
+  horizon. The market sharpens from 0.14 a week out to 0.07 an hour out; the model barely
+  moves.
+- **Pooling adds nothing.** Market + LLM beats the recalibrated market by at most 0.0013
+  Brier, inside the noise. None of the 18 pre-registered tests rejects after Holm adjustment
+  (smallest adjusted p = 0.94). The weight on the LLM is indistinguishable from zero for
+  Opus, Sonnet and Haiku alike.
+- **Light news does not help.** 252 snapshots had relevant dated headlines. Adding them
+  made the pool slightly *worse* at every horizon (small samples, wide intervals). The
+  market had already priced the news.
+- **No money in it.** Trading the gap between the pool and the market, after fees, earns no
+  more than trading the recalibrated market alone. The LLM on its own loses money.
+
+![Out-of-sample gain](results/v1/figures/forest.png)
+
+The full report, with calibration, ablations, clustering checks, per-category results and
+P&L, is in [results/v1/report.md](results/v1/report.md).
 
 ## The question
 
@@ -36,9 +71,9 @@ unresearched one does not.
 
 ## Design
 
-1. **Questions.** Binary Kalshi and Polymarket markets listed from 1 July 2026, after the June
-   2026 training cutoff of every model used, and resolved by 9 October 2026. At most one per
-   event, at most 100 per venue and category.
+1. **Questions.** 712 binary Polymarket markets listed from 1 July 2026, after the June 2026
+   training cutoff of every model used, and resolved by 9 October 2026. At most one per event,
+   at most 100 per category, at least $10,000 traded.
 2. **Snapshots.** The market mid at 7 days, 1 day and 1 hour before the deadline known at
    listing.
 3. **Forecasts.** Claude Opus 5.5, Sonnet 5.5 and Haiku 5.5 (low effort) give a probability.
@@ -50,8 +85,8 @@ unresearched one does not.
    - H2: the pool beats the recalibrated market on Brier score out of sample (one-sided,
      event-clustered bootstrap).
    - Both are Holm-adjusted together.
-6. **Money.** A simple strategy trades the gap between the pool and the market, after each
-   venue's real fee formula.
+6. **Money.** A simple strategy trades the gap between the pool and the market, after
+   Polymarket's fee formula.
 
 The full plan, fixed before any forecast was scored, is in
 [docs/preregistration.md](docs/preregistration.md).
@@ -70,8 +105,9 @@ A backtest is only as good as its guard against look-ahead.
   observer would not have one either.
 - **Dated news.** Headlines are read from Wikipedia revisions dated before each snapshot.
   The collector refuses to write anything later.
-- **Empirical check.** Where the market sat between 20% and 80% and the model was ≥90% sure,
-  the model is right about half the time. A model that knew outcomes would be right almost
+- **Empirical check.** Where the market sat between 20% and 80% and the model was ≥90% sure either way,
+  the model is right about half the time (134 of 262 calls, 51%; see
+  `scripts/leakage_check.py`). A model that knew outcomes would be right almost
   always.
 
 ## Quickstart
@@ -93,7 +129,7 @@ uv run --extra plot pricedin report studies/v1.toml
 Rebuild it from scratch:
 
 ```bash
-uv run pricedin collect studies/v1.toml      # list and sample questions (~3 h, Kalshi scan)
+uv run pricedin collect studies/v1.toml      # list and sample questions
 uv run pricedin snapshots studies/v1.toml    # market state at each horizon
 uv run pricedin news studies/v1.toml         # dated headlines
 uv run pricedin forecast studies/v1.toml -f claude-cli:claude-opus-5-5@low -c base
@@ -108,7 +144,10 @@ API instead (`pip install "pricedin[anthropic]"` and an `ANTHROPIC_API_KEY`).
 - **No research.** This is the point of the design, and the main reason the result is a
   lower bound.
 - **Claude only.** Three Claude models at low effort. Other model families may differ.
-- **One window.** Questions resolved July to October 2026, on two venues.
+- **One window, one venue.** Polymarket questions resolved July to October 2026.
+- **Kalshi left out.** Kalshi has no reliable deadline field fixed at listing, so its snapshot
+  times could not be anchored without look-ahead. The Kalshi client stays in the code; see the
+  amendments in the [analysis plan](docs/preregistration.md).
 - **Today's date.** Claude Code tells the model the real current date, and this cannot be
   switched off. The prompt tells the model to ignore it, and the date says nothing about any
   outcome. The `anthropic:` provider and the live collector avoid it.
@@ -123,7 +162,7 @@ API instead (`pip install "pricedin[anthropic]"` and an `ANTHROPIC_API_KEY`).
 
 | path | content |
 | --- | --- |
-| `src/pricedin/venues/` | Kalshi and Polymarket clients: listing, snapshots, fees |
+| `src/pricedin/venues/` | Polymarket and Kalshi clients: listing, snapshots, fees |
 | `src/pricedin/news/` | dated Wikipedia headlines and relevance filter |
 | `src/pricedin/forecast/` | prompt, providers, resumable runner |
 | `src/pricedin/eval/` | pooling, scoring, inference, P&L |

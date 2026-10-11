@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use pricedin, please cite it as below."
 title: pricedin
 abstract: >-
-  Tests whether an LLM adds information beyond the prediction-market price, using
-  leakage-safe forecasts on resolved Kalshi and Polymarket questions.
+  A leakage-safe baseline: does an LLM's own knowledge and reasoning, with no web research,
+  add information to Polymarket prices? Study v1 finds it does not.
 type: software
 authors:
   - alias: h-a-forster
