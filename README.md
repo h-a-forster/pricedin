@@ -169,7 +169,7 @@ API instead (`pip install "pricedin[anthropic]"` and an `ANTHROPIC_API_KEY`).
 | `studies/v1.toml` | the study config |
 | `data/v1/` | frozen questions, snapshots, news and forecasts ([data card](docs/data.md)) |
 | `results/v1/` | `evaluation.json`, `report.md`, figures |
-| `docs/` | [analysis plan](docs/preregistration.md), [data card](docs/data.md), [related work](docs/related-work.md) |
+| `docs/` | [analysis plan](docs/preregistration.md), [data card](docs/data.md), [related work](docs/related-work.md), [prospective arm](docs/live.md) |
 
 ## Citation
 
