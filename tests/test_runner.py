@@ -86,9 +86,10 @@ def test_cache_makes_rerun_free(tmp_path: Path) -> None:
     s = run_forecasts(qs, snaps, out_path=tmp_path / "b.jsonl", **kw)
     assert len(prov.calls) == 2 and s["cached"] == 2 and s["cost_usd"] == 0.0
     a, b = rows(tmp_path / "a.jsonl"), rows(tmp_path / "b.jsonl")
-    assert [(r.harness, r.model, r.prompt_hash) for r in a] == [
-        (r.harness, r.model, r.prompt_hash) for r in b
-    ]
+    # workers write in completion order, so compare as sets
+    assert {(r.question_id, r.harness, r.model, r.prompt_hash) for r in a} == {
+        (r.question_id, r.harness, r.model, r.prompt_hash) for r in b
+    }
     assert all(r.harness == "scripted" for r in b)
 
 

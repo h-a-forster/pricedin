@@ -331,6 +331,9 @@ def test_pick_point_boundaries():
     assert pm.pick_point([{"t": ts - 6 * 3600 - 1, "p": 0.7}], as_of) is None
     assert pm.pick_point([{"t": ts + 1, "p": 0.7}, {"t": "x", "p": 1}], as_of) is None
     assert pm.pick_point([], as_of) is None
+    # bad prices are skipped, not used: fall back to the last valid point
+    bad = [{"t": ts - 120, "p": 0.25}, {"t": ts - 90, "p": "nan"}, {"t": ts - 61, "p": 1.5}]
+    assert pm.pick_point(bad, as_of) == (as_of - timedelta(seconds=120), 0.25)
 
 
 def mock_client(handler, **kw) -> HttpClient:
@@ -470,6 +473,29 @@ def test_book_snapshot_orders_levels_best_first():
     assert s.source == "live-book" and s.horizon == "live" and s.last == 0.11
     empty = pm.book_snapshot({"bids": [], "asks": [], "last_trade_price": "0.4"}, "x")
     assert empty.bid is None and empty.mid == 0.4
+
+
+def test_book_snapshot_drops_bad_levels_and_timestamp():
+    now = T("2026-09-15T00:00:00")
+    body = {
+        "bids": [
+            {"price": "nan", "size": "1"},
+            {"price": "1.2", "size": "1"},
+            {"price": "0.30", "size": "0"},
+            {"price": "0.20", "size": "4"},
+            {"size": "9"},
+        ],
+        "asks": [{"price": "0.25", "size": "inf"}, {"price": "0.26", "size": "2"}],
+        "timestamp": "not-a-number",
+        "last_trade_price": "7",
+    }
+    s = pm.book_snapshot(body, "x", now=now)
+    assert s.book["bids"] == [[0.20, 4.0]] and s.book["asks"] == [[0.26, 2.0]]
+    assert s.mid == pytest.approx(0.23) and s.as_of == pm.to_iso(now)
+    one_sided = pm.book_snapshot(
+        {"bids": [{"price": "0.2", "size": "1"}], "asks": [], "last_trade_price": "7"}, "x", now=now
+    )
+    assert one_sided.mid == 0.2  # out-of-range last trade ignored
 
 
 def test_live_snapshot_resolves_condition_id():
