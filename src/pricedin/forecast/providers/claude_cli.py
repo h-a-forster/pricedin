@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -47,6 +48,7 @@ _AUTH = re.compile(
     re.IGNORECASE,
 )
 _TAIL = 400
+_VERSION = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 
 
 def _tail(text: str, n: int = _TAIL) -> str:
@@ -128,6 +130,12 @@ def parse_cli_output(stdout: str, stderr: str, exit_code: int | None) -> Complet
     )
 
 
+def parse_version(stdout: str) -> str:
+    """``"2.1.287 (Claude Code)"`` -> ``"2.1.287"``; ``""`` when no version is found."""
+    m = _VERSION.search(stdout or "")
+    return m.group(0) if m else ""
+
+
 class ClaudeCLIProvider:
     name = "claude-cli"
 
@@ -150,6 +158,31 @@ class ClaudeCLIProvider:
         self.retries = retries
         self.extra_args = tuple(extra_args)
         self.options: dict[str, Any] = {"effort": effort, "extra_args": list(self.extra_args)}
+        self._harness: str | None = None
+        self._harness_lock = threading.Lock()
+
+    def harness(self, exe: str) -> str:
+        """``"claude-cli <version>"`` from ``claude --version``, looked up once per provider.
+
+        Makes no model call. Falls back to ``"claude-cli unknown"`` if the version cannot be read.
+        """
+        with self._harness_lock:
+            if self._harness is None:
+                version = ""
+                try:
+                    proc = subprocess.run(
+                        [exe, "--version"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=60,
+                    )
+                    version = parse_version(proc.stdout) if proc.returncode == 0 else ""
+                except (OSError, subprocess.SubprocessError):
+                    pass
+                self._harness = f"claude-cli {version or 'unknown'}"
+            return self._harness
 
     def argv(self, exe: str, system_file: str) -> list[str]:
         argv = [
@@ -204,6 +237,7 @@ class ClaudeCLIProvider:
         comp = parse_cli_output(proc.stdout or "", proc.stderr or "", proc.returncode)
         comp.latency_s = round(latency, 3)
         comp.model = comp.model or self.model
+        comp.harness = self.harness(exe)
         return comp
 
     def complete(self, system: str, user: str, *, max_tokens: int) -> Completion:

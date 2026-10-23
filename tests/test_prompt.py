@@ -9,6 +9,7 @@ from pricedin.forecast.prompt import (
     PROMPT_VERSION,
     build_prompt,
     format_duration,
+    prompt_hash,
     select_headlines,
     truncate_rules,
 )
@@ -124,3 +125,12 @@ def test_no_scheduled_close_never_leaks_actual_close() -> None:
     assert "20 August" not in system + user
     assert "Scheduled close" not in user
     assert "deadline is set out in the resolution criteria" in system
+
+
+def test_prompt_hash() -> None:
+    h = prompt_hash("sys", "user")
+    assert len(h) == 16 and int(h, 16) >= 0
+    assert h == prompt_hash("sys", "user")
+    assert h != prompt_hash("sys", "user ")
+    # The boundary between system and user text matters.
+    assert prompt_hash("ab", "c") != prompt_hash("a", "bc")

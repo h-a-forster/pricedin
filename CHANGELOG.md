@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Forecast rows record provenance: `model` (the model id the endpoint reported), `harness`
+  (client and version, e.g. `claude-cli 2.1.287` from `claude --version`, or the installed
+  `anthropic` SDK version) and `prompt_hash` (sha256 prefix of the exact prompt). Cached
+  replies keep the harness they were made with. Study v1 data and results are unchanged.
+- `docs/live.md`: how to run the prospective arm locally or on GitHub Actions.
+
+### Changed
+
+- `.github/workflows/live.yml` no longer has an hourly schedule; it runs only on manual
+  dispatch until the schedule is added back (see `docs/live.md`).
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

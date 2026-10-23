@@ -29,7 +29,13 @@ from typing import Any
 
 from pricedin.forecast.cache import DEFAULT_DIR, CachedProvider, ResponseCache
 from pricedin.forecast.parse import extract_rationale, parse_probability
-from pricedin.forecast.prompt import CONDITIONS, build_prompt, close_time, select_headlines
+from pricedin.forecast.prompt import (
+    CONDITIONS,
+    build_prompt,
+    close_time,
+    prompt_hash,
+    select_headlines,
+)
 from pricedin.forecast.providers import Provider, ProviderError, make_provider
 from pricedin.forecast.providers.base import Completion
 from pricedin.schema import (
@@ -206,6 +212,7 @@ def run_forecasts(
         latency = 0.0
         prob: float | None = None
         text = ""
+        model = harness = ""
         error: str | None = None
         all_cached = True
         for attempt in range(1 + max(0, retries)):
@@ -233,6 +240,7 @@ def run_forecasts(
             all_cached = all_cached and comp.cached
             latency += comp.latency_s
             text = comp.text
+            model, harness = comp.model, comp.harness
             prob = parse_probability(text)
             if prob is not None:
                 error = None
@@ -248,6 +256,9 @@ def run_forecasts(
             condition=condition,
             prob=prob,
             prompt_version=version,
+            prompt_hash=prompt_hash(system, user),
+            model=model,
+            harness=harness,
             rationale=extract_rationale(text),
             usage=usage,
             cost_usd=cost,

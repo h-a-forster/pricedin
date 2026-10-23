@@ -58,6 +58,16 @@ def estimate_cost(model: str, usage: dict[str, int]) -> float | None:
     ) / 1e6
 
 
+def sdk_harness() -> str:
+    """``"anthropic-sdk <version>"`` of the installed SDK, or ``"anthropic-sdk unknown"``."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return f"anthropic-sdk {version('anthropic')}"
+    except PackageNotFoundError:
+        return "anthropic-sdk unknown"
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -81,6 +91,7 @@ class AnthropicProvider:
         self.options: dict[str, Any] = {"effort": effort}
         self._client = client
         self._lock = threading.Lock()
+        self.harness = sdk_harness()
 
     def _get_client(self) -> Any:
         with self._lock:
@@ -146,4 +157,5 @@ class AnthropicProvider:
             model=model,
             latency_s=round(latency, 3),
             stop_reason=getattr(resp, "stop_reason", None),
+            harness=self.harness,
         )

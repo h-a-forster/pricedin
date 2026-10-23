@@ -14,7 +14,8 @@ T = TypeVar("T")
 @dataclass
 class Completion:
     """One model reply. ``usage`` keys: input_tokens, output_tokens, cache_read_tokens,
-    cache_write_tokens (missing when the provider does not report them)."""
+    cache_write_tokens (missing when the provider does not report them). ``harness`` names the
+    client and its version (e.g. ``"claude-cli 2.1.287"``, ``"anthropic-sdk 0.71.0"``)."""
 
     text: str
     usage: dict[str, int] = field(default_factory=dict)
@@ -22,6 +23,7 @@ class Completion:
     model: str = ""
     latency_s: float = 0.0
     stop_reason: str | None = None
+    harness: str = ""
     cached: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -32,6 +34,7 @@ class Completion:
             "model": self.model,
             "latency_s": self.latency_s,
             "stop_reason": self.stop_reason,
+            "harness": self.harness,
         }
 
     @classmethod
@@ -43,6 +46,7 @@ class Completion:
             model=d.get("model", ""),
             latency_s=float(d.get("latency_s", 0.0)),
             stop_reason=d.get("stop_reason"),
+            harness=d.get("harness") or "",
         )
 
 
