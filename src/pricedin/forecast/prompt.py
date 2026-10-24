@@ -11,6 +11,8 @@ and feeds the response cache key through the prompt text.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Iterable
 from datetime import datetime, timedelta
@@ -19,6 +21,7 @@ from pricedin.schema import NewsItem, Question, parse_time
 
 PROMPT_VERSION = "v1"
 CONDITIONS = ("base", "news")
+PROMPT_HASH_CHARS = 16
 
 MAX_RULES_CHARS = 4000
 MAX_HEADLINES = 40
@@ -203,3 +206,13 @@ def build_prompt(
         news=news_block,
     )
     return system, user, PROMPT_VERSION
+
+
+def prompt_hash(system: str, user: str) -> str:
+    """Hex sha256 prefix of the exact prompt pair sent to the model.
+
+    ``PROMPT_VERSION`` names the template; this identifies the rendered text, so two rows with the
+    same hash saw byte-identical prompts.
+    """
+    payload = json.dumps([system, user], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:PROMPT_HASH_CHARS]

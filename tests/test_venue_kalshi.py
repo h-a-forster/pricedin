@@ -135,6 +135,8 @@ def test_select_observation_boundaries():
     assert (
         K.select_observation([_candle(1_000_000), _candle(1_000_060)], odd, stale).ts == 1_000_000
     )
+    # a malformed candle is skipped, not fatal
+    assert K.select_observation([{"price": {}}, _candle(999_940)], as_of, stale).ts == 999_940
 
 
 def test_quote_rules():

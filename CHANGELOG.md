@@ -3,6 +3,30 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Forecast rows record provenance: `model` (the model id the endpoint reported), `harness`
+  (client and version, e.g. `claude-cli 2.1.287` from `claude --version`, or the installed
+  `anthropic` SDK version) and `prompt_hash` (sha256 prefix of the exact prompt). Cached
+  replies keep the harness they were made with. Study v1 data and results are unchanged.
+- `docs/live.md`: how to run the prospective arm locally or on GitHub Actions.
+
+### Changed
+
+- `.github/workflows/live.yml` no longer has an hourly schedule; it runs only on manual
+  dispatch until the schedule is added back (see `docs/live.md`).
+
+### Fixed
+
+- Polymarket price history and order books skip prices that are not finite or outside [0, 1],
+  empty or non-finite book levels, and an unparseable book timestamp, instead of using them or
+  failing. The frozen v1 snapshots contain no such prices, so v1 results are unaffected.
+- Kalshi: one malformed candle no longer aborts the whole series.
+- HTTP: 408 is retried, and the error raised after retries are exhausted carries the last
+  status and URL.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

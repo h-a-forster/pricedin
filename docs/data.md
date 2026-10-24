@@ -52,6 +52,11 @@ UTC ISO 8601 with a `Z` suffix. Probabilities are for the YES side.
   is never later than `as_of`, and the collector refuses to write a row that breaks this.
 - **`Forecast.prob`**: `null` when the reply could not be parsed. Those rows are dropped and
   counted in the evaluation.
+- **`Forecast.model`, `Forecast.harness`, `Forecast.prompt_hash`**: the model id the endpoint
+  reported, the client and version that made the call (e.g. `claude-cli 2.1.287`) and a
+  16-hex-digit sha256 prefix of the exact prompt. Added after study v1: the frozen v1 files do
+  not have them (they read back as empty strings). Rows replayed from the response cache carry
+  the harness recorded when the reply was first cached, or an empty string for older entries.
 
 ## Sources and licences
 

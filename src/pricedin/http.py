@@ -36,7 +36,7 @@ DEFAULT_HOST_INTERVALS: dict[str, float] = {
     "api.gdeltproject.org": 5.5,
     "en.wikipedia.org": 1.0,
 }
-RETRY_STATUSES = frozenset({429, 500, 502, 503, 504, 520, 521, 522, 524})
+RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504, 520, 521, 522, 524})
 
 
 class HttpError(RuntimeError):
@@ -200,6 +200,7 @@ class HttpClient:
 
         host = urlsplit(url).hostname or ""
         last_err = ""
+        last_status: int | None = None
         for attempt in range(self.max_retries + 1):
             self._wait_turn(host)
             self.stats["requests"] += 1
@@ -231,6 +232,7 @@ class HttpClient:
                             },
                         )
                     return body
+                last_status = resp.status_code
                 last_err = f"HTTP {resp.status_code}: {resp.text[:200]!r}"
                 if resp.status_code not in RETRY_STATUSES:
                     raise HttpError(last_err, status=resp.status_code, url=url)
@@ -242,4 +244,8 @@ class HttpClient:
                 delay = max(delay, min(retry_after, self.backoff_max))
             self.stats["retries"] += 1
             self._push_back(host, delay)  # the next _wait_turn sleeps it off
-        raise HttpError(f"giving up on {url} after {self.max_retries + 1} attempts: {last_err}")
+        raise HttpError(
+            f"giving up on {url} after {self.max_retries + 1} attempts: {last_err}",
+            status=last_status,
+            url=url,
+        )

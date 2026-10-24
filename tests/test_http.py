@@ -98,9 +98,17 @@ def test_non_retryable_and_exhausted():
     assert client.stats["requests"] == 1
 
     client, _ = make(lambda req: httpx.Response(500), min_interval=0.0, max_retries=2)
-    with pytest.raises(HttpError, match="3 attempts"):
+    with pytest.raises(HttpError, match="3 attempts") as ei:
         client.get_json("https://x.test/")
     assert client.stats["requests"] == 3
+    assert ei.value.status == 500 and ei.value.url == "https://x.test/"
+
+
+def test_request_timeout_status_is_retried():
+    replies = iter([httpx.Response(408), httpx.Response(200, json={"ok": 1})])
+    client, _ = make(lambda req: next(replies), min_interval=0.0)
+    assert client.get_json("https://x.test/") == {"ok": 1}
+    assert client.stats["retries"] == 1
 
 
 def test_non_json_body_raises():

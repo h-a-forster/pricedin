@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
@@ -9,13 +10,18 @@ from pricedin.forecast.providers import (
     EchoProvider,
     ProviderError,
     TransientError,
+    claude_cli,
     make_provider,
     parse_spec,
     with_retries,
 )
 from pricedin.forecast.providers.anthropic import AnthropicProvider, estimate_cost
-from pricedin.forecast.providers.base import classify_sdk_error
-from pricedin.forecast.providers.claude_cli import ClaudeCLIProvider, parse_cli_output
+from pricedin.forecast.providers.base import Completion, classify_sdk_error
+from pricedin.forecast.providers.claude_cli import (
+    ClaudeCLIProvider,
+    parse_cli_output,
+    parse_version,
+)
 
 
 def test_parse_spec() -> None:
@@ -179,6 +185,8 @@ def test_anthropic_with_fake_client() -> None:
     assert "tools" not in sent and sent["system"] == "sys"
     assert c.cost_usd == pytest.approx(estimate_cost("claude-haiku-5-5", c.usage))
     assert estimate_cost("unknown-model", c.usage) is None
+    assert c.model == "claude-haiku-5-5"
+    assert c.harness.startswith("anthropic-sdk ") and c.harness == p.harness
 
 
 def test_anthropic_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,3 +194,61 @@ def test_anthropic_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     p = AnthropicProvider("claude-haiku-5-5", api_key_env="PRICEDIN_TEST_NO_KEY")
     with pytest.raises(ProviderError):
         p.complete("s", "u", max_tokens=10)
+
+
+def test_parse_version() -> None:
+    assert parse_version("2.1.287 (Claude Code)\n") == "2.1.287"
+    assert parse_version("claude 3.0.0-beta.2") == "3.0.0-beta.2"
+    assert parse_version("") == ""
+    assert parse_version("no version here") == ""
+
+
+def _fake_run(calls: list[list[str]], version_out: str = "2.1.287 (Claude Code)", rc: int = 0):
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "Because.\nPROBABILITY: 0.4",
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+        "total_cost_usd": 0.001,
+        "modelUsage": {"claude-opus-5-5-20260601": {}},
+    }
+
+    def run(argv, **kw):
+        calls.append(list(argv))
+        if argv[1:] == ["--version"]:
+            return subprocess.CompletedProcess(argv, rc, stdout=version_out, stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(result), stderr="")
+
+    return run
+
+
+def test_cli_records_harness_version_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(claude_cli.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(claude_cli.shutil, "which", lambda exe: "/usr/bin/claude")
+    p = ClaudeCLIProvider("claude-opus-5-5", effort="low")
+    c1 = p.complete("sys", "user", max_tokens=100)
+    c2 = p.complete("sys", "user", max_tokens=100)
+    assert c1.harness == c2.harness == "claude-cli 2.1.287"
+    assert c1.model == "claude-opus-5-5-20260601"
+    assert sum(1 for a in calls if a[1:] == ["--version"]) == 1
+
+
+def test_cli_harness_unknown_when_version_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(claude_cli.subprocess, "run", _fake_run(calls, "boom", rc=1))
+    assert ClaudeCLIProvider("m").harness("/usr/bin/claude") == "claude-cli unknown"
+
+    def broken(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, 60)
+
+    monkeypatch.setattr(claude_cli.subprocess, "run", broken)
+    assert ClaudeCLIProvider("m").harness("/usr/bin/claude") == "claude-cli unknown"
+
+
+def test_completion_round_trip_keeps_harness() -> None:
+    c = Completion(text="x", model="m", harness="claude-cli 2.1.287")
+    assert Completion.from_dict(c.to_dict()).harness == "claude-cli 2.1.287"
+    old = {"text": "x", "usage": {}, "model": "m"}  # cache entry written before harness existed
+    assert Completion.from_dict(old).harness == ""

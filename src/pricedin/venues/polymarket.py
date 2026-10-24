@@ -19,6 +19,7 @@ Leakage notes, from a survey of ~22k markets listed Jun-Aug 2026 (see the build 
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -529,13 +530,18 @@ def pick_point(
     max_stale: timedelta = MAX_STALE,
     guard: timedelta = HISTORY_GUARD,
 ) -> tuple[datetime, float] | None:
-    """The last (t, p) with t <= as_of - guard and t >= as_of - max_stale, else None."""
+    """The last (t, p) with t <= as_of - guard and t >= as_of - max_stale, else None.
+
+    Malformed points and prices that are not finite or not in [0, 1] are skipped.
+    """
     latest = as_of - guard
     best: tuple[float, float] | None = None
     for pt in history:
         try:
             t, p = float(pt["t"]), float(pt["p"])
         except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(t) and _is_price(p)):
             continue
         if t <= latest.timestamp() and (best is None or t > best[0]):
             best = (t, p)
@@ -594,13 +600,20 @@ def snapshot(
     )
 
 
+def _is_price(p: float) -> bool:
+    return math.isfinite(p) and 0.0 <= p <= 1.0
+
+
 def _levels(raw: list[dict[str, Any]], *, best_high: bool) -> list[list[float]]:
+    """Book levels as [price, size], best first; malformed, out-of-range or empty levels dropped."""
     out = []
     for lv in raw or []:
         try:
-            out.append([float(lv["price"]), float(lv["size"])])
+            price, size = float(lv["price"]), float(lv["size"])
         except (KeyError, TypeError, ValueError):
             continue
+        if _is_price(price) and math.isfinite(size) and size > 0:
+            out.append([price, size])
     out.sort(key=lambda x: x[0], reverse=best_high)
     return out[:BOOK_LEVELS]
 
@@ -614,9 +627,13 @@ def book_snapshot(body: dict[str, Any], question_id: str, now: datetime | None =
     if bid is not None and ask is not None:
         mid = (bid + ask) / 2
     else:
-        mid = _float_or_none(body.get("last_trade_price")) or bid or ask or float("nan")
-    ts = body.get("timestamp")
-    when = datetime.fromtimestamp(int(ts) / 1000, tz=UTC) if ts else (now or datetime.now(UTC))
+        last = _float_or_none(body.get("last_trade_price"))
+        mid = (last if last is not None and _is_price(last) else None) or bid or ask or math.nan
+    ms = _float_or_none(body.get("timestamp"))
+    if ms is not None and math.isfinite(ms) and ms > 0:
+        when = datetime.fromtimestamp(ms / 1000, tz=UTC)
+    else:
+        when = now or datetime.now(UTC)
     return Snapshot(
         question_id=question_id,
         horizon="live",

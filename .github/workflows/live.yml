@@ -1,7 +1,13 @@
-# Prospective collector: one `pricedin live` pass an hour, committing data/live back to the repo.
+# Prospective collector: one `pricedin live` pass, committing data/live back to the repo.
 #
-# Disabled by default. To enable: add an ANTHROPIC_API_KEY repository secret and set the
-# repository variable PRICEDIN_LIVE to "true" (Settings > Secrets and variables > Actions).
+# Manual only by default (no schedule), so the workflow never queues idle runs. To run the
+# prospective arm on GitHub, see docs/live.md:
+#   1. add an ANTHROPIC_API_KEY repository secret;
+#   2. set the repository variable PRICEDIN_LIVE to "true" (Settings > Secrets and variables >
+#      Actions); without it every run is skipped;
+#   3. add the hourly trigger below under `on:`.
+#        schedule:
+#          - cron: "7 * * * *" # hourly, off the top of the hour
 # The forecaster here is the Anthropic API (`anthropic:`), not the claude CLI configured in
 # studies/live.toml, so its rows land in separate forecast files.
 #
@@ -11,8 +17,6 @@
 name: live
 
 on:
-  schedule:
-    - cron: "7 * * * *" # hourly, off the top of the hour
   workflow_dispatch:
     inputs:
       dry_run:

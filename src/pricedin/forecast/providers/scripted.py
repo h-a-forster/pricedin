@@ -45,6 +45,7 @@ class ScriptedProvider:
             usage={"input_tokens": len(system + user) // 4, "output_tokens": len(text) // 4},
             cost_usd=0.0,
             model=self.model,
+            harness=self.name,
         )
 
 

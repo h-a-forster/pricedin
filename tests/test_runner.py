@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pricedin.forecast.prompt import PROMPT_VERSION
+from pricedin.forecast.prompt import PROMPT_VERSION, build_prompt, prompt_hash
 from pricedin.forecast.providers import ProviderError, ScriptedProvider
 from pricedin.forecast.providers.base import Completion
 from pricedin.forecast.runner import load_forecasts, run_forecasts, shard_of
@@ -64,6 +64,11 @@ def test_basic_run_and_resume(tmp_path: Path) -> None:
     f = got[0]
     assert f.prob == 0.3 and f.forecaster == SPEC and f.condition == "base"
     assert f.prompt_version == PROMPT_VERSION and f.error is None
+    assert f.model == "constant-0.3" and f.harness == "constant"
+    q = next(q for q in qs if q.id == f.question_id)
+    system, user, _ = build_prompt(q, f.as_of, "base")
+    assert f.prompt_hash == prompt_hash(system, user)
+    assert len({r.prompt_hash for r in got}) == 9  # every task saw a different prompt
     assert {(r.question_id, r.horizon, r.as_of) for r in got} == {
         (s.question_id, s.horizon, s.as_of) for s in snaps
     }
@@ -80,6 +85,12 @@ def test_cache_makes_rerun_free(tmp_path: Path) -> None:
     run_forecasts(qs, snaps, out_path=tmp_path / "a.jsonl", **kw)
     s = run_forecasts(qs, snaps, out_path=tmp_path / "b.jsonl", **kw)
     assert len(prov.calls) == 2 and s["cached"] == 2 and s["cost_usd"] == 0.0
+    a, b = rows(tmp_path / "a.jsonl"), rows(tmp_path / "b.jsonl")
+    # workers write in completion order, so compare as sets
+    assert {(r.question_id, r.harness, r.model, r.prompt_hash) for r in a} == {
+        (r.question_id, r.harness, r.model, r.prompt_hash) for r in b
+    }
+    assert all(r.harness == "scripted" for r in b)
 
 
 def test_failures_recorded_then_retried(tmp_path: Path) -> None:

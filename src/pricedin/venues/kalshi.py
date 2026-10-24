@@ -607,7 +607,10 @@ def select_observation(
     lo = hi - max_stale.total_seconds()
     best: Observation | None = None
     for c in candles:
-        obs = parse_candle(c)
+        try:
+            obs = parse_candle(c)
+        except (KeyError, TypeError, ValueError):
+            continue  # malformed candle: skip it rather than lose the whole series
         if lo <= obs.ts <= hi and (best is None or obs.ts > best.ts):
             best = obs
     return best

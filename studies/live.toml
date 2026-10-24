@@ -1,9 +1,10 @@
 # pricedin study "live": prospective collection on open markets.
 #
 # Run one pass an hour: `pricedin live studies/live.toml --once` (cron, Task Scheduler or
-# .github/workflows/live.yml). Each pass tracks newly eligible open markets, takes a live order
-# book at 7 d / 1 d / 1 h before each market's scheduled close, forecasts it at that moment, and
-# records outcomes once markets settle. `pricedin merge` is not needed: each pass rewrites
+# .github/workflows/live.yml, which is manual until enabled: see docs/live.md). Each pass
+# tracks newly eligible open markets, takes a live order book at 7 d / 1 d / 1 h before each
+# market's scheduled close, forecasts it at that moment, and records outcomes once markets
+# settle. `pricedin merge` is not needed: each pass rewrites
 # data/live/questions.jsonl (resolved questions only) and data/live/forecasts/*.jsonl.gz, so
 # `pricedin evaluate studies/live.toml` works on whatever has resolved so far.
 #

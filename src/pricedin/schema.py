@@ -138,6 +138,9 @@ class Forecast:
     condition: str  # e.g. "base" (question only) or "news" (question + dated headlines)
     prob: float | None  # None when the reply could not be parsed or the call failed
     prompt_version: str = ""
+    prompt_hash: str = ""  # sha256 prefix of the exact (system, user) prompt; see prompt_hash()
+    model: str = ""  # model id the endpoint reported, e.g. a dated snapshot of the alias asked for
+    harness: str = ""  # client and version that made the call, e.g. "claude-cli 2.1.287"
     rationale: str = ""  # the model's short reasoning, truncated
     usage: dict[str, int] = field(default_factory=dict)
     cost_usd: float | None = None
