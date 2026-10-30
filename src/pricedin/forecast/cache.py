@@ -68,6 +68,8 @@ class ResponseCache:
                     break
                 except PermissionError:  # Windows: target briefly open by a reader
                     if attempt == 4:
+                        if path.exists():  # another writer stored this key; keep theirs
+                            break
                         raise
                     time.sleep(0.05 * (attempt + 1))
         finally:

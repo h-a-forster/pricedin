@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+import pytest
+
 from pricedin.forecast.cache import CachedProvider, ResponseCache, cache_key
 from pricedin.forecast.providers import ScriptedProvider
 
@@ -33,6 +35,7 @@ def test_key_depends_on_every_part() -> None:
     assert cache_key(*parts) == base
 
 
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
 def test_concurrent_puts(tmp_path: Path) -> None:
     cache = ResponseCache(tmp_path)
 
