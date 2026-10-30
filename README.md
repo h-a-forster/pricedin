@@ -18,9 +18,9 @@ ones (828 test rows per model):
 | | 7 days before | 1 day before | 1 hour before |
 | --- | ---: | ---: | ---: |
 | Market price | 0.141 | 0.088 | 0.070 |
-| Market, recalibrated | 0.142 | 0.085 | 0.067 |
+| Market, recalibrated | 0.142 | 0.084 | 0.067 |
 | Claude Opus 5.5 alone | 0.223 | 0.209 | 0.204 |
-| Market + Opus (pool) | 0.140 | 0.085 | 0.067 |
+| Market + Opus (pool) | 0.140 | 0.084 | 0.067 |
 
 Brier score on the test period, lower is better. 0.25 is a coin flip.
 
@@ -30,7 +30,7 @@ Brier score on the test period, lower is better. 0.25 is a coin flip.
   horizon. The market sharpens from 0.14 a week out to 0.07 an hour out; the model barely
   moves.
 - **Pooling adds nothing.** Market + LLM beats the recalibrated market by at most 0.0013
-  Brier, inside the noise. None of the 18 pre-registered tests rejects after Holm adjustment
+  Brier, inside the noise. None of the 36 pre-registered tests rejects after Holm adjustment
   (smallest adjusted p = 0.94). The weight on the LLM is indistinguishable from zero for
   Opus, Sonnet and Haiku alike.
 - **Light news does not help.** 252 snapshots had relevant dated headlines. Adding them
@@ -106,7 +106,7 @@ A backtest is only as good as its guard against look-ahead.
 - **Dated news.** Headlines are read from Wikipedia revisions dated before each snapshot.
   The collector refuses to write anything later.
 - **Empirical check.** Where the market sat between 20% and 80% and the model was ≥90% sure either way,
-  the model is right about half the time (134 of 262 calls, 51%; see
+  the model is right about half the time (134 of 262 `base` calls, 51%; see
   `scripts/leakage_check.py`). A model that knew outcomes would be right almost
   always.
 

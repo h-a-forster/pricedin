@@ -5,6 +5,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
 ### Added
 
 - Forecast rows record provenance: `model` (the model id the endpoint reported), `harness`
@@ -26,6 +28,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Kalshi: one malformed candle no longer aborts the whole series.
 - HTTP: 408 is retried, and the error raised after retries are exhausted carries the last
   status and URL.
+- Response cache: on Windows, concurrent writes of the same key could raise `PermissionError`
+  once retries ran out; the write is now dropped when another writer has already stored the key.
+- README: the 1-day recalibrated-market and pool Brier scores read 0.085 instead of 0.084, and
+  the Holm family has 36 tests, not 18. Study v1 results are unchanged.
 
 ## [0.1.0] - 2026-10-11
 
