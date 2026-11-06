@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -52,3 +53,24 @@ def test_concurrent_puts(tmp_path: Path) -> None:
     assert cache.get("ab" + "0" * 62)["text"] in {"0", "1", "2", "3"}
     assert not list(tmp_path.rglob(".tmp-*"))
     assert cache.get("cd" + "0" * 62) is None
+
+
+def test_put_keeps_the_stored_reply_when_replace_keeps_failing(tmp_path: Path, monkeypatch) -> None:
+    cache = ResponseCache(tmp_path)
+    key = "ab" + "0" * 62
+    monkeypatch.setattr("pricedin.forecast.cache.time.sleep", lambda _: None)
+    real_replace = os.replace
+
+    def locked(src, dst):
+        raise PermissionError("target is open")
+
+    monkeypatch.setattr("pricedin.forecast.cache.os.replace", locked)
+    with pytest.raises(PermissionError):  # nothing stored: losing the reply must be loud
+        cache.put(key, {"text": "first"})
+
+    monkeypatch.setattr("pricedin.forecast.cache.os.replace", real_replace)
+    cache.put(key, {"text": "stored"})
+    monkeypatch.setattr("pricedin.forecast.cache.os.replace", locked)
+    cache.put(key, {"text": "other"})  # must not raise
+    assert cache.get(key) == {"text": "stored"}
+    assert not list(tmp_path.rglob(".tmp-*"))
