@@ -12,7 +12,7 @@ research? A leakage-safe baseline on Polymarket.
 **No. Without research, Claude adds nothing measurable to the Polymarket price.**
 
 712 Polymarket questions, 1,743 snapshots. Three Claude models forecast each one without
-seeing the price. Fitted on questions that resolved before September 2026, scored on later
+seeing the price. Fitted on questions that resolved by 1 September 2026, scored on later
 ones (828 test rows per model):
 
 | | 7 days before | 1 day before | 1 hour before |
@@ -33,9 +33,15 @@ Brier score on the test period, lower is better. 0.25 is a coin flip.
   Brier, inside the noise. None of the 36 pre-registered tests rejects after Holm adjustment
   (smallest adjusted p = 0.94). The weight on the LLM is indistinguishable from zero for
   Opus, Sonnet and Haiku alike.
-- **Light news does not help.** 252 snapshots had relevant dated headlines. Adding them
-  made the pool slightly *worse* at every horizon (small samples, wide intervals). The
-  market had already priced the news.
+- **Two subgroups to watch.** Category breakdowns are secondary and not Holm-adjusted. On
+  sports (115 test rows, 41 events) and crypto (40 rows, 14 events) the pool beats the
+  recalibrated market for all three models, by 0.0009 to 0.0065 Brier, with 95% intervals above
+  zero. World and politics lean the other way. Treat this as a lead for a new study, not a
+  finding.
+- **Light news does not help.** 252 snapshots had relevant dated headlines. On those rows the
+  pool scored worse than the recalibrated market at every horizon for every model, by 0.001 to
+  0.105 Brier. The pools were fitted on only 31 to 42 training rows per horizon, so read this
+  as no sign of a gain, not as proof that news hurts.
 - **No money in it.** Trading the gap between the pool and the market, after fees, earns no
   more than trading the recalibrated market alone. The LLM on its own loses money.
 
@@ -133,11 +139,12 @@ uv run pricedin collect studies/v1.toml      # list and sample questions
 uv run pricedin snapshots studies/v1.toml    # market state at each horizon
 uv run pricedin news studies/v1.toml         # dated headlines
 uv run pricedin forecast studies/v1.toml -f claude-cli:claude-opus-5-5@low -c base
+uv run pricedin merge studies/v1.toml        # evaluate reads merged files only
 uv run pricedin evaluate studies/v1.toml && uv run --extra plot pricedin report studies/v1.toml
 ```
 
 `claude-cli:` runs the forecasts through a local Claude Code install. `anthropic:` uses the
-API instead (`pip install "pricedin[anthropic]"` and an `ANTHROPIC_API_KEY`).
+API instead (`uv run --extra anthropic ...` and an `ANTHROPIC_API_KEY`).
 
 ## Limitations
 
@@ -173,4 +180,5 @@ API instead (`pip install "pricedin[anthropic]"` and an `ANTHROPIC_API_KEY`).
 
 ## Citation
 
-See [CITATION.cff](CITATION.cff). MIT licence.
+See [CITATION.cff](CITATION.cff). The code is under the MIT licence. The data keeps its
+sources' terms: see [the data card](docs/data.md#sources-and-licences).

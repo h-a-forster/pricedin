@@ -28,9 +28,8 @@ Sonnet and Haiku 5.5) finds no measurable gain. Data and results are frozen in `
   (`pricedin evaluate`) is free and offline.
 - API keys come from environment variables only and are never printed, logged or stored.
 - Scratch files go in `tmp/` (gitignored). No `.bak` copies; use git.
-- Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The repository
-  is public: change it through pull requests with CI. No personal names, local user paths or
-  machine details in committed files or logs.
+- The repository is public: change it through pull requests with CI. No personal names, local
+  user paths or machine details in committed files or logs.
 
 ## How to test
 
@@ -43,22 +42,10 @@ uv run pricedin evaluate studies/v1.toml --out runs/ci --bootstrap 200   # CI re
 ```
 
 A full re-score (`uv run pricedin evaluate studies/v1.toml --out tmp/eval`, about 2 min)
-reproduces `results/v1/evaluation.json` exactly; run it after any change under `src/pricedin/eval/`.
+reproduces `results/v1/evaluation.json` exactly apart from its `version` field; run it after any
+change under `src/pricedin/eval/`.
 
-## Status and next steps (2026-10-30)
+## Status and next steps
 
-Released: v0.1.0 (tagged). v0.1.1 is prepared on a branch (CHANGELOG, release notes in
-`docs/release-notes-0.1.1.md`); the tag is not created yet.
-
-Open items:
-
-- **Fable arm.** Claude Fable 5.1 was dropped from v1 for cost (about $200 via the API; see
-  the preregistration amendments). Adding it means forecasting the v1 questions with a new
-  forecaster spec and re-scoring, reported as an addition to v1, not a change to the
-  published table.
-- **Prospective arm.** `studies/live.toml` and `.github/workflows/live.yml` work but run only
-  on manual dispatch; no live data has been collected (`docs/live.md`).
-- **Kalshi.** Excluded from v1 (no deadline fixed at listing). The client remains; a Kalshi
-  study needs a look-ahead-free anchor first.
-- **CI hygiene.** GitHub Actions are pinned by tag, not commit SHA; Dependabot has open
-  branches for `actions/checkout`, `astral-sh/setup-uv`, `anthropic` and `ruff`.
+Released: v0.1.0 (tagged). v0.1.1 is prepared on a branch (notes in
+`docs/release-notes-0.1.1.md`); the tag is not created yet. Open work lives in `backlog.md`.

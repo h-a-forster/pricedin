@@ -13,7 +13,7 @@ UTC ISO 8601 with a `Z` suffix. Probabilities are for the YES side.
 
 | file | rows | content |
 | --- | --- | --- |
-| `candidates.jsonl.gz` | every eligible question | `Question` records before sampling |
+| `candidates.jsonl.gz` | every question scanned as eligible | `Question` records before sampling; `collect --reuse` re-applies eligibility, which drops 29 of the 13,154 rows |
 | `sample.json` | 1 | counts per (venue, category): available vs sampled |
 | `questions.jsonl` | the sample | `Question`: title, rules, times, outcome, fee terms |
 | `snapshots.jsonl` | question × horizon | `Snapshot`: market mid (and bid/ask on Kalshi) at `as_of` |
@@ -75,6 +75,7 @@ uv run pricedin collect studies/v1.toml     # ~1 h, mostly the Kalshi series sca
 uv run pricedin snapshots studies/v1.toml
 uv run pricedin news studies/v1.toml
 uv run pricedin forecast studies/v1.toml -f claude-cli:claude-opus-5-5@low -c base
+uv run pricedin merge studies/v1.toml       # plain forecast files -> .jsonl.gz
 ```
 
 Venue data changes over time. For example, Kalshi moves settled markets to a separate

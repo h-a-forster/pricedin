@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pricedin"
 version = "0.1.1"
-description = "A leakage-safe baseline: does an LLM's own knowledge and reasoning, with no web research, add information to Kalshi and Polymarket prices?"
+description = "A leakage-safe baseline: does an LLM's own knowledge and reasoning, with no web research, add information to prediction-market prices?"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -4,6 +4,10 @@
 order book at 7 d / 1 d / 1 h before a market's scheduled close, forecasts it at that moment and
 records the outcome once the market settles. Nothing runs unless you start it.
 
+A snapshot needs a two-sided book, or a one-sided book whose last trade agrees with it. Any
+other market gets a `no usable book` entry in `horizons.jsonl` and is retried until its window
+closes.
+
 A pass is idempotent and safe to repeat; run one roughly every hour (the horizon windows are
 +-35 min, `tolerance_minutes` in the study file). A horizon that gets no pass inside its window
 is logged as missed and never backfilled.
