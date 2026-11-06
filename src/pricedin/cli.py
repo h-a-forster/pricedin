@@ -9,6 +9,7 @@ pricedin evaluate  STUDY      pool, score and test; P&L after fees
 pricedin report    STUDY      Markdown report and figures from the evaluation
 pricedin power                power analysis on synthetic data
 pricedin live      STUDY      prospective collector for open markets (run on a schedule)
+pricedin status    STUDY      row counts per stage
 """
 
 from __future__ import annotations
@@ -91,7 +92,25 @@ def forecast_path(study: Study, spec: str, condition: str, shard: str | None = N
     return study.forecasts_dir / f"{name}.jsonl.gz"
 
 
+def plain_forecast_files(study: Study) -> dict[str, list[Path]]:
+    """Plain and sharded forecast files, grouped by the ``.jsonl.gz`` they merge into."""
+    fdir = study.forecasts_dir
+    groups: dict[str, list[Path]] = {}
+    for p in sorted([*fdir.glob("*.jsonl"), *fdir.glob("shards/*.jsonl")]):
+        groups.setdefault(p.name.split(".")[0], []).append(p)
+    return groups
+
+
 def load_all_forecasts(study: Study) -> list[Forecast]:
+    """Every merged forecast row. Refuses if a run has rows that ``pricedin merge`` has not
+    taken in yet: scoring without them would quietly report the old results."""
+    unmerged = []
+    for name, paths in plain_forecast_files(study).items():
+        final = study.forecasts_dir / f"{name}.jsonl.gz"
+        newest = final.stat().st_mtime if final.exists() else -1.0
+        unmerged += [p.name for p in paths if p.stat().st_mtime > newest]
+    if unmerged:
+        raise SystemExit(f"unmerged forecasts: {', '.join(unmerged)}; run `pricedin merge` first")
     out: list[Forecast] = []
     for p in sorted(study.forecasts_dir.glob("*.jsonl.gz")):
         out.extend(read_jsonl(p, Forecast))
@@ -314,11 +333,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
     study = load_study(args.study)
     fdir = study.forecasts_dir
-    groups: dict[str, list[Path]] = {}
-    for p in sorted([*fdir.glob("*.jsonl"), *fdir.glob("shards/*.jsonl")]):
-        name = p.name.split(".")[0]
-        groups.setdefault(name, []).append(p)
-    for name, paths in groups.items():
+    for name, paths in plain_forecast_files(study).items():
         final = fdir / f"{name}.jsonl.gz"
         best: dict[tuple[str, str], Forecast] = {}
         if final.exists():

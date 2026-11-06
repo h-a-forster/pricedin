@@ -619,30 +619,45 @@ def _levels(raw: list[dict[str, Any]], *, best_high: bool) -> list[list[float]]:
 
 
 def book_snapshot(body: dict[str, Any], question_id: str, now: datetime | None = None) -> Snapshot:
-    """``/book`` response for the YES token -> Snapshot (best level first on both sides)."""
+    """``/book`` response for the YES token -> Snapshot (best level first on both sides).
+
+    ``as_of`` is when the book was read. The body's ``timestamp`` is when the book last changed
+    (close to an hour old on quiet markets), so it only sets ``price_at``. A two-sided book gives
+    its mid. A one-sided or empty book has a price only if the last trade agrees with the side
+    that exists: ``/book`` can report the complement token's trade (0.99 against a 0.29 ask).
+    Otherwise ``mid`` is NaN, which the collector logs as no usable book.
+    """
     bids = _levels(body.get("bids") or [], best_high=True)
     asks = _levels(body.get("asks") or [], best_high=False)
     bid = bids[0][0] if bids else None
     ask = asks[0][0] if asks else None
+    last = _float_or_none(body.get("last_trade_price"))
     if bid is not None and ask is not None:
         mid = (bid + ask) / 2
+    elif (
+        last is not None
+        and _is_price(last)
+        and (bid is None or last >= bid)
+        and (ask is None or last <= ask)
+    ):
+        mid = last
     else:
-        last = _float_or_none(body.get("last_trade_price"))
-        mid = (last if last is not None and _is_price(last) else None) or bid or ask or math.nan
+        mid = math.nan
+    read_at = now or datetime.now(UTC)
     ms = _float_or_none(body.get("timestamp"))
     if ms is not None and math.isfinite(ms) and ms > 0:
-        when = datetime.fromtimestamp(ms / 1000, tz=UTC)
+        changed_at = min(datetime.fromtimestamp(ms / 1000, tz=UTC), read_at)
     else:
-        when = now or datetime.now(UTC)
+        changed_at = read_at
     return Snapshot(
         question_id=question_id,
         horizon="live",
-        as_of=to_iso(when),
+        as_of=to_iso(read_at),
         mid=mid,
         bid=bid,
         ask=ask,
-        last=_float_or_none(body.get("last_trade_price")),
-        price_at=to_iso(when),
+        last=last,
+        price_at=to_iso(changed_at),
         source="live-book",
         book={"bids": bids, "asks": asks, "tick_size": _float_or_none(body.get("tick_size"))},
     )

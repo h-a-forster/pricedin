@@ -1,4 +1,4 @@
-"""Anthropic Messages API via the official ``anthropic`` SDK (``pip install pricedin[anthropic]``).
+"""Anthropic Messages API via the official ``anthropic`` SDK (extra ``anthropic``).
 
 The API key is read from the environment (``ANTHROPIC_API_KEY`` by default) and never stored.
 No tools are offered, so the model cannot search the web. No sampling parameters are sent
@@ -101,7 +101,7 @@ class AnthropicProvider:
                 except ImportError as exc:
                     raise ProviderError(
                         "the anthropic provider needs the anthropic SDK: "
-                        "pip install 'pricedin[anthropic]'"
+                        "uv sync --extra anthropic, or pip install anthropic"
                     ) from exc
                 key = os.environ.get(self.api_key_env)
                 if not key:

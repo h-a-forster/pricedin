@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -492,10 +493,33 @@ def test_book_snapshot_drops_bad_levels_and_timestamp():
     s = pm.book_snapshot(body, "x", now=now)
     assert s.book["bids"] == [[0.20, 4.0]] and s.book["asks"] == [[0.26, 2.0]]
     assert s.mid == pytest.approx(0.23) and s.as_of == pm.to_iso(now)
-    one_sided = pm.book_snapshot(
-        {"bids": [{"price": "0.2", "size": "1"}], "asks": [], "last_trade_price": "7"}, "x", now=now
-    )
-    assert one_sided.mid == 0.2  # out-of-range last trade ignored
+
+
+def test_book_snapshot_as_of_is_read_time_not_last_book_change():
+    now = T("2026-09-15T00:00:00")
+    changed = now - timedelta(minutes=48)
+    body = {
+        "bids": [{"price": "0.2", "size": "1"}],
+        "asks": [{"price": "0.3", "size": "1"}],
+        "timestamp": str(int(changed.timestamp() * 1000)),
+    }
+    s = pm.book_snapshot(body, "x", now=now)
+    assert s.as_of == pm.to_iso(now) and s.price_at == pm.to_iso(changed)
+
+
+@pytest.mark.parametrize(
+    ("bids", "asks", "last", "usable"),
+    [
+        ([], [{"price": "0.29", "size": "9"}], "0.990", False),  # complement token's trade
+        ([], [{"price": "0.5", "size": "9"}], "", False),  # no trade: a lone quote is no price
+        ([{"price": "0.2", "size": "1"}], [], "7", False),  # out of range
+        ([{"price": "0.2", "size": "1"}], [], "0.25", True),
+        ([], [{"price": "0.29", "size": "9"}], "0.25", True),
+    ],
+)
+def test_book_snapshot_one_sided_needs_a_consistent_trade(bids, asks, last, usable):
+    s = pm.book_snapshot({"bids": bids, "asks": asks, "last_trade_price": last}, "x")
+    assert s.mid == float(last) if usable else math.isnan(s.mid)
 
 
 def test_live_snapshot_resolves_condition_id():

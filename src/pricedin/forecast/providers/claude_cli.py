@@ -6,14 +6,15 @@ No API key is needed. Each call runs, in a fresh empty temporary directory::
         --system-prompt-file SYSTEM.md --tools "" --strict-mcp-config --setting-sources ""
         --safe-mode --disable-slash-commands --max-turns 1 [--effort LEVEL]
 
-with the user prompt on stdin. The system prompt replaces Claude Code's own. No tools (so no web
+with the user prompt on stdin. The system prompt replaces Claude Code's own, apart from a
+one-line SDK preamble. No tools (so no web
 search), MCP servers, settings files, hooks, plugins, skills or CLAUDE.md files are loaded.
 ``max_tokens`` is not supported by the CLI and is ignored. Cost is Claude Code's
 ``total_cost_usd`` (the API list price of the call, whether or not a subscription pays for it).
 
-Leakage caveat (checked with Claude Code 2.1.287): even with a replaced system prompt, Claude
-Code attaches context of its own to the first user message: an environment block (working
-directory, OS, shell, model id), the account email, and "Today's date is <real date>". The
+Leakage caveat (checked with Claude Code 2.1.287 and 2.1.308): even with a replaced system
+prompt, Claude Code attaches context of its own to the first user message: an environment block
+(working directory, OS, shell, model id), the account email, and "Today's date is <real date>". The
 model therefore sees the real run date next to the forecast date stated in the prompt. Neither
 an ISO datetime nor a plain date in ``CLAUDE_CODE_OVERRIDE_DATE`` changed it. Prefer the
 ``anthropic`` provider, which sends only the prompt, for results where this matters.

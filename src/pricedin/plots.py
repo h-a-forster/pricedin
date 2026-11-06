@@ -46,7 +46,7 @@ def _mpl():
     except ImportError as exc:  # pragma: no cover - exercised only without matplotlib
         raise ImportError(
             "figures need matplotlib: install with `uv sync --extra plot` "
-            "or `pip install 'pricedin[plot]'`"
+            "or `pip install matplotlib`"
         ) from exc
     matplotlib.rcParams.update(
         {

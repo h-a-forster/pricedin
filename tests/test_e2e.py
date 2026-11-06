@@ -11,7 +11,8 @@ import json
 import pytest
 from fixtures.synthetic import ECHO, INFORMED, make_study
 
-from pricedin.cli import main
+from pricedin.cli import load_all_forecasts, main
+from pricedin.universe import load_study
 
 INF, ECH = f"{INFORMED}|base", f"{ECHO}|base"
 
@@ -23,6 +24,17 @@ def run(tmp_path_factory):
     assert main(["evaluate", str(toml), "--bootstrap", "100"]) == 0
     assert main(["report", str(toml)]) == 0
     return root / "results"
+
+
+def test_evaluate_refuses_unmerged_forecasts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # the response cache is relative to the working directory
+    toml = str(make_study(tmp_path))
+    assert main(["forecast", toml, "-f", "constant:0.5", "--limit", "1"]) == 0
+    with pytest.raises(SystemExit, match="unmerged forecasts"):
+        main(["evaluate", toml, "--out", "out"])
+    assert not (tmp_path / "out").exists()
+    assert main(["merge", toml]) == 0  # plain files are kept, but now hold nothing new
+    assert any(f.forecaster == "constant:0.5" for f in load_all_forecasts(load_study(toml)))
 
 
 @pytest.mark.slow
