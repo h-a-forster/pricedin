@@ -12,3 +12,4 @@ tmp/
 runs/
 .pricedin-cache/
 .env
+backlog.md
