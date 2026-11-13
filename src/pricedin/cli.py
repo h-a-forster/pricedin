@@ -528,8 +528,52 @@ def cmd_report(args: argparse.Namespace) -> int:
     from pricedin import report
 
     study = load_study(args.study)
-    out = report.write_report(study, Path(args.out) if args.out else study.results_dir)
+    out_dir = Path(args.out) if args.out else study.results_dir
+    if args.readme and not Path(args.readme).exists():
+        raise SystemExit(f"no README at {args.readme}")
+    out = report.write_report(study, out_dir)
     _log(f"wrote {out}")
+    if args.readme:
+        from pricedin import readme
+
+        ev = report.load_evaluation(out_dir)
+        readme.sync(Path(args.readme), readme.render(study, ev, report.featured_key(ev)))
+        _log(f"updated {args.readme}")
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Re-score the study from its frozen data and compare with the committed results.
+
+    ``evaluation.json`` must match field for field apart from ``version``, which records the
+    release that wrote it rather than a result; ``report.md`` and ``summary.json`` are rendered
+    from the fresh evaluation and must match byte for byte. Figures are not compared: they are
+    drawn from the same evaluation, but their bytes depend on the platform's fonts.
+    """
+    import tempfile
+
+    from pricedin import report
+
+    study = load_study(args.study)
+    committed = report.load_evaluation(study.results_dir)
+    with tempfile.TemporaryDirectory() as folder:
+        code = main(["evaluate", args.study, "--out", folder])
+        if code:
+            return code
+        fresh = report.load_evaluation(Path(folder))
+    fresh["version"] = committed.get("version")
+    texts = {
+        "report.md": report.render(study, fresh),
+        "summary.json": json.dumps(report.summary(fresh), indent=1) + "\n",
+    }
+    changed = [] if fresh == committed else ["evaluation.json"]
+    for name, text in texts.items():
+        if (study.results_dir / name).read_text(encoding="utf-8") != text:
+            changed.append(name)
+    if changed:
+        print(f"study {study.name}: differs from the committed results: {', '.join(changed)}")
+        return 1
+    print(f"study {study.name}: evaluation.json, report.md and summary.json reproduce")
     return 0
 
 
@@ -645,7 +689,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("report", help="Markdown report and figures")
     p.add_argument("study")
     p.add_argument("--out", help="output folder (default: results/<study>)")
+    p.add_argument("--readme", help="also rewrite this README's generated result block")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("check", help="re-score the study and compare with its committed results")
+    p.add_argument("study")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("power", help="power analysis on synthetic data")
     p.add_argument("--n", type=int, nargs="+", default=[300, 600, 1200])

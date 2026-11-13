@@ -21,8 +21,11 @@ Sonnet and Haiku 5.5) finds no measurable gain. Data and results are frozen in `
 - Published numbers never change silently. A change to design, filters, horizons or scoring
   is a new study (`studies/v2.toml`), not an edit to `v1`. Any prompt wording change bumps
   `PROMPT_VERSION`.
-- Every headline number in `README.md` must trace to `results/v1/report.md` or
-  `results/v1/summary.json`.
+- The README's result section is generated: `src/pricedin/readme.py` holds its prose, fills
+  every number from `results/v1` and refuses to render a sentence the results no longer support.
+  Change the template, then `pricedin report studies/v1.toml --readme README.md`. The leakage
+  figure comes from `results/v1/leakage_check.json` (`scripts/leakage_check.py`).
+  `tests/test_published.py` and the CI `numbers` job hold all of it to the committed data.
 - Model calls cost money: forecasting goes through the on-disk response cache and the
   resumable runner; never re-run a study's forecasts to "check" something. Re-scoring
   (`pricedin evaluate`) is free and offline.
@@ -39,11 +42,12 @@ uv run pytest -m "not slow and not network"
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts
 uv run pricedin evaluate studies/v1.toml --out runs/ci --bootstrap 200   # CI re-score, ~25 s
+uv run pricedin check studies/v1.toml   # full re-score against results/v1, about 2 min
 ```
 
-A full re-score (`uv run pricedin evaluate studies/v1.toml --out tmp/eval`, about 2 min)
-reproduces `results/v1/evaluation.json` exactly apart from its `version` field; run it after any
-change under `src/pricedin/eval/`.
+`pricedin check` must pass after any change under `src/pricedin/eval/`: it compares
+`evaluation.json` field for field (apart from `version`, which names the release that wrote it)
+and `report.md` and `summary.json` byte for byte.
 
 ## Status and next steps
 
