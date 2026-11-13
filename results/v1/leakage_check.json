@@ -1,0 +1,92 @@
+{
+ "base": {
+  "right": 134,
+  "calls": 262
+ },
+ "by_file": {
+  "claude-cli_claude-haiku-5-5_low__base.jsonl.gz": {
+   "1d": [
+    8,
+    21
+   ],
+   "1h": [
+    3,
+    8
+   ],
+   "7d": [
+    29,
+    53
+   ]
+  },
+  "claude-cli_claude-haiku-5-5_low__news.jsonl.gz": {
+   "1d": [
+    0,
+    1
+   ],
+   "1h": [
+    1,
+    1
+   ],
+   "7d": [
+    2,
+    7
+   ]
+  },
+  "claude-cli_claude-opus-5-5_low__base.jsonl.gz": {
+   "1d": [
+    7,
+    20
+   ],
+   "1h": [
+    7,
+    11
+   ],
+   "7d": [
+    29,
+    51
+   ]
+  },
+  "claude-cli_claude-opus-5-5_low__news.jsonl.gz": {
+   "1d": [
+    3,
+    3
+   ],
+   "1h": [
+    4,
+    4
+   ],
+   "7d": [
+    2,
+    6
+   ]
+  },
+  "claude-cli_claude-sonnet-5-5_low__base.jsonl.gz": {
+   "1d": [
+    7,
+    23
+   ],
+   "1h": [
+    7,
+    12
+   ],
+   "7d": [
+    37,
+    63
+   ]
+  },
+  "claude-cli_claude-sonnet-5-5_low__news.jsonl.gz": {
+   "1d": [
+    3,
+    4
+   ],
+   "1h": [
+    4,
+    4
+   ],
+   "7d": [
+    5,
+    12
+   ]
+  }
+ }
+}

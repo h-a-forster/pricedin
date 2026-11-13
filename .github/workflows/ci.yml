@@ -42,3 +42,26 @@ jobs:
 
       - name: Re-score the committed study
         run: uv run pricedin evaluate studies/v1.toml --out runs/ci --bootstrap 200
+
+  numbers:
+    # Every published number is regenerated from the frozen data and compared with the commit.
+    name: published numbers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: uv sync --locked --all-extras --dev
+
+      - name: Re-score study v1 in full and compare evaluation, report and summary
+        run: uv run pricedin check studies/v1.toml
+
+      - name: Rebuild the leakage check and the README result block
+        run: |
+          uv run python scripts/leakage_check.py
+          uv run pricedin report studies/v1.toml --readme README.md
+          git diff --exit-code -- README.md results/v1/leakage_check.json results/v1/report.md results/v1/summary.json
