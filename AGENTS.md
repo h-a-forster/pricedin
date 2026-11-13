@@ -47,5 +47,5 @@ change under `src/pricedin/eval/`.
 
 ## Status and next steps
 
-Released: v0.1.0 (tagged). v0.1.1 is prepared on a branch (notes in
-`docs/release-notes-0.1.1.md`); the tag is not created yet. Open work lives in `backlog.md`.
+Released: v0.1.0 and v0.1.1 (tagged; notes in `docs/release-notes-0.1.1.md`). Open work lives in
+`backlog.md` (gitignored, local only).
