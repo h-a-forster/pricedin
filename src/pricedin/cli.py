@@ -572,9 +572,28 @@ def cmd_check(args: argparse.Namespace) -> int:
             changed.append(name)
     if changed:
         print(f"study {study.name}: differs from the committed results: {', '.join(changed)}")
+        diffs = list(_differences(committed, fresh))
+        worst = max((r for *_, r in diffs if r is not None), default=None)
+        print(f"{len(diffs)} evaluation fields differ; largest relative difference: {worst}")
+        for path, a, b, _ in diffs[:10]:
+            print(f"  {path}: committed {a!r}, fresh {b!r}")
         return 1
     print(f"study {study.name}: evaluation.json, report.md and summary.json reproduce")
     return 0
+
+
+def _differences(a: Any, b: Any, path: str = ""):
+    """Yield ``(path, committed, fresh, relative difference or None)`` for each differing leaf."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in sorted(a.keys() | b.keys(), key=str):
+            yield from _differences(a.get(k), b.get(k), f"{path}/{k}")
+    elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b, strict=True)):
+            yield from _differences(x, y, f"{path}/{i}")
+    elif a != b:
+        numbers = all(isinstance(v, int | float) and not isinstance(v, bool) for v in (a, b))
+        rel = abs(a - b) / max(abs(a), abs(b)) if numbers else None
+        yield path, a, b, rel
 
 
 def cmd_power(args: argparse.Namespace) -> int:
