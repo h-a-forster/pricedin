@@ -45,9 +45,10 @@ uv run pricedin evaluate studies/v1.toml --out runs/ci --bootstrap 200   # CI re
 uv run pricedin check studies/v1.toml   # full re-score against results/v1, about 2 min
 ```
 
-`pricedin check` must pass after any change under `src/pricedin/eval/`: it compares
-`evaluation.json` field for field (apart from `version`, which names the release that wrote it)
-and `report.md` and `summary.json` byte for byte.
+`pricedin check` must pass after any change under `src/pricedin/eval/`: it compares `report.md`
+byte for byte, and `evaluation.json` and `summary.json` field for field (apart from `version`,
+which names the release that wrote it), numbers to 1e-8 relative: the fits differ in their last
+bits between platforms, up to 1.5e-10 relative from Windows to Linux (`CHECK_RTOL` in `cli.py`).
 
 ## Status and next steps
 

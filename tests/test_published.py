@@ -69,3 +69,13 @@ def test_readme_leakage_figure_is_the_scripts_output():
     share = round(100 * base["right"] / base["calls"])
     text = " ".join((ROOT / "README.md").read_text(encoding="utf-8").split())
     assert f"({base['right']} of {base['calls']} `base` calls, {share}%;" in text
+
+
+def test_check_tolerates_platform_noise_but_not_a_changed_result():
+    from pricedin.cli import _differences
+
+    committed = {"brier": 0.1413286640, "n": 285, "nan": float("nan"), "ok": True}
+    noise = {**committed, "brier": 0.1413286640 * (1 + 2e-10)}
+    assert list(_differences(committed, noise)) == []
+    changed = {**committed, "brier": 0.1413, "n": 284, "ok": False}
+    assert [p for p, *_ in _differences(committed, changed)] == ["/brier", "/n", "/ok"]

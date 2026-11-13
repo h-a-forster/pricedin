@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from collections import Counter
@@ -542,13 +543,21 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# How far a re-scored number may sit from the committed one. The fits and bootstraps go through
+# BLAS and iterative solvers whose last bits differ between platforms: a Linux re-score of results
+# written on Windows differs by up to 1.5e-10 relative (2026-11-13). Anything a person reads,
+# report.md and the README, is rendered at 3 to 4 decimals and is compared byte for byte.
+CHECK_RTOL, CHECK_ATOL = 1e-8, 1e-12
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Re-score the study from its frozen data and compare with the committed results.
 
-    ``evaluation.json`` must match field for field apart from ``version``, which records the
-    release that wrote it rather than a result; ``report.md`` and ``summary.json`` are rendered
-    from the fresh evaluation and must match byte for byte. Figures are not compared: they are
-    drawn from the same evaluation, but their bytes depend on the platform's fonts.
+    ``report.md`` is rendered from the fresh evaluation and must match byte for byte.
+    ``evaluation.json`` and ``summary.json`` must match field for field, numbers to within
+    ``CHECK_RTOL`` (``CHECK_ATOL`` near zero), apart from ``version``, which records the release
+    that wrote it rather than a result. Figures are not compared: they are drawn from the same
+    evaluation, but their bytes depend on the platform's fonts.
     """
     import tempfile
 
@@ -562,38 +571,42 @@ def cmd_check(args: argparse.Namespace) -> int:
             return code
         fresh = report.load_evaluation(Path(folder))
     fresh["version"] = committed.get("version")
-    texts = {
-        "report.md": report.render(study, fresh),
-        "summary.json": json.dumps(report.summary(fresh), indent=1) + "\n",
+    summary = json.loads((study.results_dir / "summary.json").read_text(encoding="utf-8"))
+    pairs = {
+        "evaluation.json": (committed, fresh),
+        "summary.json": (summary, json.loads(json.dumps(report.summary(fresh)))),
     }
-    changed = [] if fresh == committed else ["evaluation.json"]
-    for name, text in texts.items():
-        if (study.results_dir / name).read_text(encoding="utf-8") != text:
+    changed = []
+    for name, (old, new) in pairs.items():
+        diffs = list(_differences(old, new))
+        if diffs:
             changed.append(name)
+            print(f"{name}: {len(diffs)} fields differ beyond rtol {CHECK_RTOL:g}")
+            for path, a, b in diffs[:10]:
+                print(f"  {path}: committed {a!r}, fresh {b!r}")
+    if (study.results_dir / "report.md").read_text(encoding="utf-8") != report.render(study, fresh):
+        changed.append("report.md")
     if changed:
         print(f"study {study.name}: differs from the committed results: {', '.join(changed)}")
-        diffs = list(_differences(committed, fresh))
-        worst = max((r for *_, r in diffs if r is not None), default=None)
-        print(f"{len(diffs)} evaluation fields differ; largest relative difference: {worst}")
-        for path, a, b, _ in diffs[:10]:
-            print(f"  {path}: committed {a!r}, fresh {b!r}")
         return 1
     print(f"study {study.name}: evaluation.json, report.md and summary.json reproduce")
     return 0
 
 
 def _differences(a: Any, b: Any, path: str = ""):
-    """Yield ``(path, committed, fresh, relative difference or None)`` for each differing leaf."""
+    """Yield ``(path, committed, fresh)`` for each leaf that differs beyond the tolerance."""
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(a.keys() | b.keys(), key=str):
             yield from _differences(a.get(k), b.get(k), f"{path}/{k}")
     elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
         for i, (x, y) in enumerate(zip(a, b, strict=True)):
             yield from _differences(x, y, f"{path}/{i}")
-    elif a != b:
-        numbers = all(isinstance(v, int | float) and not isinstance(v, bool) for v in (a, b))
-        rel = abs(a - b) / max(abs(a), abs(b)) if numbers else None
-        yield path, a, b, rel
+    elif isinstance(a, float) and isinstance(b, float):
+        both_nan = math.isnan(a) and math.isnan(b)
+        if not both_nan and not math.isclose(a, b, rel_tol=CHECK_RTOL, abs_tol=CHECK_ATOL):
+            yield path, a, b
+    elif a != b or type(a) is not type(b):
+        yield path, a, b
 
 
 def cmd_power(args: argparse.Namespace) -> int:
