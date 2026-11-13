@@ -1,8 +1,8 @@
 """The README's result section, rendered from ``evaluation.json`` and the study's data files.
 
-Every number in the section is a field below, and every claim the prose makes in words ("for all
-three models", "at every horizon") is asserted before rendering, so a re-scored study cannot
-leave the README stating something the results no longer show. ``pricedin report --readme``
+Every number in the section is a field below, and every claim the prose makes in words ("the
+models barely move", "at every horizon") is asserted before rendering, so a re-scored study
+cannot leave the README stating something the results no longer show. ``pricedin report --readme``
 rewrites the block between the markers; a test checks the committed README against it.
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 import textwrap
 from collections import Counter
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +25,14 @@ MARKERS = (
     "<!-- end of generated result -->\n",
 )
 HORIZON_WORDS = {"7d": "7 days before", "1d": "1 day before", "1h": "1 hour before"}
+NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 
 TEMPLATE = """\
 **No. Without research, Claude adds nothing measurable to the Polymarket price.**
 
-{questions} Polymarket questions, {snapshots} snapshots. Three Claude models forecast each one
-without seeing the price. Fitted on questions that resolved by {split}, scored on later ones
-({test_rows} test rows per model):
+{questions} Polymarket questions, {snapshots} snapshots. {n_models_cap} Claude models forecast
+each one without seeing the price. Fitted on questions that resolved by {split}, scored on later
+ones ({test_rows} test rows per model):
 
 {table}
 
@@ -45,7 +47,7 @@ the models barely move.
 inside the noise. None of the {tests} pre-registered tests rejects after Holm adjustment (smallest
 adjusted p = {p_min}). The weight on the LLM is indistinguishable from zero for {models} alike.
 - **Two subgroups to watch.** Category breakdowns are secondary and not Holm-adjusted. {leads} the
-pool beats the recalibrated market for all three models, by {lead_lo} to {lead_hi} Brier, with
+pool beats the recalibrated market for all {n_models} models, by {lead_lo} to {lead_hi} Brier, with
 95% intervals above zero. {lags} lean the other way. Treat this as a lead for a new study, not a
 finding.
 - **Light news does not help.** {news_snapshots} snapshots had relevant dated headlines. On those
@@ -117,9 +119,16 @@ def _fields(study: Study, ev: dict[str, Any], featured: str) -> dict[str, str]:
         rows.append(f"| {label} | " + " | ".join(f"{brier(featured, h, model):.3f}" for h in hs))
         rows[-1] += " |"
 
+    _require(len(base) in NUMBER_WORDS, "a panel of two to six models")
+    _require(all(_model_name(k).startswith("Claude ") for k in base), "Claude models")
     llm = [brier(k, h, "llm") for k in base for h in hs]
     market = [brier(featured, h, "market") for h in hs]
     _require(min(llm) > max(market), "every model alone is worse than the market")
+    _require(all(a > b for a, b in pairwise(market)), "the market sharpens")
+    market_move = market[0] - market[-1]
+    for k in base:
+        own = [brier(k, h, "llm") for h in hs]
+        _require(max(own) - min(own) < market_move / 2, "the models barely move")
 
     fam = primary_family(ev)
     _require(not any(r["reject_h1"] or r["reject_h2"] for r in fam), "no test rejects")
@@ -162,6 +171,8 @@ def _fields(study: Study, ev: dict[str, Any], featured: str) -> dict[str, str]:
 
     split = datetime.fromisoformat(ev["split_at"].replace("Z", "+00:00"))
     return {
+        "n_models": NUMBER_WORDS[len(base)],
+        "n_models_cap": NUMBER_WORDS[len(base)].capitalize(),
         "questions": f"{len(questions):,}",
         "snapshots": f"{sum(snapshots.values()):,}",
         "split": f"{split.day} {split:%B %Y}",

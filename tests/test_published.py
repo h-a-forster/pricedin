@@ -37,13 +37,22 @@ def test_readme_result_is_rendered_from_the_committed_results(v1):
     assert block in (ROOT / "README.md").read_text(encoding="utf-8")
 
 
-def test_readme_prose_refuses_results_that_contradict_it(v1):
+@pytest.mark.parametrize(
+    ("suffix", "path", "value", "claim"),
+    [
+        ("|news", ("pool", "delta_vs_market_recal", "brier", "mean"), 0.01, "every horizon"),
+        ("|base", ("llm", "brier"), 0.16, "barely move"),
+    ],
+)
+def test_readme_prose_refuses_results_that_contradict_it(v1, suffix, path, value, claim):
     study, ev = v1
     ev = copy.deepcopy(ev)
-    key = next(k for k in ev["keys"] if k.endswith("|news"))
-    fb = ev["keys"][key]["by_horizon"]["1d"]["forecasters"][key]
-    fb["models"]["pool"]["delta_vs_market_recal"]["brier"]["mean"] = 0.01
-    with pytest.raises(readme.ClaimError, match="every horizon"):
+    key = next(k for k in ev["keys"] if k.endswith(suffix))
+    node = ev["keys"][key]["by_horizon"]["1h"]["forecasters"][key]["models"]
+    for step in path[:-1]:
+        node = node[step]
+    node[path[-1]] = value
+    with pytest.raises(readme.ClaimError, match=claim):
         readme.render(study, ev, report.featured_key(ev))
 
 
